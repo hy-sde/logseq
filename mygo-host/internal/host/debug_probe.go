@@ -57,6 +57,50 @@ func (h *Host) attachDebugProbe(w *mygoWindow) {
 		}
 	}()
 	go func() {
+		// Edit-path smoke: insert a block through the plugin API after the
+		// graph is open (exercises renderer -> IPC -> daemon -> SQLite).
+		time.Sleep(20 * time.Second)
+		edit := `(function(){
+			var api = window.logseq && window.logseq.api;
+			if (!api || !api.get_all_pages) return "no api; keys=" + Object.keys(window.logseq || {}).join(",") + " apiKeys=" + (api ? Object.keys(api).slice(0,40).join(",") : "n/a");
+			var ib = typeof api.insertBlock + "/" + typeof api.insert_block;
+			return api.get_all_pages().then(function(pages){
+				var page = pages && pages.length && (pages.find(function(p){ return /demo/i.test(String(p.name || p["original-name"] || p.title || "")) }) || pages[0]);
+				if (!page) return "no pages";
+				var id = page.uuid || page.id || page.name;
+				return api.insert_block(id, "mygo-host edit smoke " + Date.now()).then(function(b){
+					return "inserted uuid=" + (b && (b.uuid || (b.data && b.data.uuid)));
+				});
+			}).catch(function(e){
+				return "ERR:" + ib + " msg=" + String(e && e.message) + " data=" + (e && e.data ? JSON.stringify(e.data).slice(0, 300) : "none") + " str=" + String(e).slice(0, 120);
+			});
+		})()`
+		v, err := w.Page().Eval(edit)
+		if err != nil {
+			log.Printf("[debug] edit eval error: %v", err)
+			return
+		}
+		b, _ := json.Marshal(v)
+		log.Printf("[debug] edit result: %s", string(b))
+		// Read back via datascript inside the page (confirms transacted state).
+		time.Sleep(3 * time.Second)
+		back, err := w.Page().Eval(`(function(){
+			var api = window.logseq && window.logseq.api;
+			if (!api || !api.datascript_query) return "no datascript_query";
+			return api.datascript_query('[:find (count ?b) . :where [?b :block/content ?c] [(re-find #"mygo-host edit smoke" ?c)]]').then(function(r){
+				return "readback count=" + JSON.stringify(r);
+			}).catch(function(e){ return "RB-ERR:" + String(e && e.message || e); });
+		})()`)
+		if err != nil {
+			log.Printf("[debug] readback eval error: %v", err)
+			return
+		}
+		b2, _ := json.Marshal(back)
+		log.Printf("[debug] readback: %s", string(b2))
+		// Persistence is verified from the daemon's SQLite file (checked
+		// externally with sqlite3) - datascript readback APIs vary by build.
+	}()
+	go func() {
 		time.Sleep(3 * time.Second)
 		if v, err := w.Page().Eval(install); err != nil {
 			log.Printf("[debug] install error: %v", err)
