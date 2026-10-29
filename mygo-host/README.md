@@ -4,6 +4,11 @@ A desktop host for the Logseq DB-graph renderer built on the
 [mygo](https://github.com/egoist/mygo) framework, replacing the Electron
 main process for milestone 1.
 
+Status: **smoke-verified end to end** — renderer boots and mounts under the
+Go host, graph-picker and graph views render, the `logseq-calendar` plugin
+iframe loads, the Node db-worker daemon is spawned and passes the
+admission/healthz identity check, and `db-worker-runtime` completes in ~1s.
+
 ## What it implements
 
 | Renderer contract surface | Status | Notes |
@@ -33,14 +38,46 @@ main process for milestone 1.
 
 ```
 cd logseq && pnpm gulp        # populate static/ (index.html, renderer js, db-worker-node.js)
+cd logseq && clojure -M:cljs compile app db-worker db-worker-node
+                              # REQUIRED after gulp: gulp:build's clean step deletes
+                              # shadow-cljs outputs (static/js/main.js, static/db-worker-node.js)
 cd mygo-host
 CGO_ENABLED=0 go build -o mygo-host .
 LOGSEQ_RESOURCES=../static ./mygo-host
 ```
 
+The renderer must be built **from this branch** — it carries the platform
+patches (`src/main/frontend/util.cljc` mygo detection,
+`src/main/electron/ipc.cljs` plain-JSON IPC branch). A renderer built from
+`master` has no `window.mygo` code path and falls back to memory-fs.
+
+`mygo.json` next to `main.go` declares the app (name, identifier,
+`urlSchemes: ["logseq"]`). Note: on macOS, deep-link (`logseq://`) scheme
+registration requires the scheme inside a bundle's `Info.plist`
+(`CFBundleURLTypes`) — a bare binary logs a registration warning and
+continues without deep links. Producing the `.app` via `mygo build` is
+milestone 2.
+
 Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
 `go build ./... && go vet ./...` are clean; no third-party Go deps —
 `github.com/egoist/mygo` only (replaced to the local checkout in go.mod).
+
+## Debugging
+
+- `LOGSEQ_DEBUG=1` attaches the debug probe: `OnDidFailLoad` logging, delayed
+  page evals, and a `w.CapturePage()` written to `/tmp/mygo-capture.png` ~8s
+  after launch. The renderer also collects boot errors into
+  `window.__lqErrors` (installed by the preload before any app script).
+- Diagnosing paint issues from another Space: `screencapture -l<WID>` and
+  full-screen crops return white/wallpaper for windows on an inactive
+  Space. Trust the in-process `CapturePage`, not screen captures.
+- `LOGSEQ_WIN_CHROME=1` opts into `HiddenInset` titlebar chrome; on mygo
+  v0.7.1 those options render blank on macOS, so they are off by default
+  (bisected: either flag alone blanks the window; plain windows paint).
+- The window is brought forward with `mygo.App.Focus()` after creation —
+  plain executables do not activate on their own and a non-key window may
+  never paint WKWebView content.
+- Per-command IPC logging (`[ipc] -> cmd ok/ERROR`) goes to stdout.
 
 ## Environment
 
