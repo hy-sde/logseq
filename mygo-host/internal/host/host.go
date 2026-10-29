@@ -1,0 +1,277 @@
+package host
+
+import (
+	"fmt"
+	"log"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+
+	"github.com/egoist/mygo"
+	"logseq/mygo-host/internal/daemon"
+	"logseq/mygo-host/internal/lifecycle"
+)
+
+// Run wires the whole host together and blocks on the mygo event loop.
+func Run() error {
+	h := newHost(loadHostConfig())
+
+	// App identity must be set before Run (affects user-data dir, keychain).
+	mygoApp().SetName("Logseq")
+	if v := os.Getenv("LOGSEQ_VERSION"); v != "" {
+		mygoApp().SetVersion(v)
+	}
+
+	// Deeplink scheme (logseq://) — register before Run.
+	if err := mygoApp().RegisterURLScheme("logseq"); err != nil {
+		log.Printf("[host] register logseq scheme: %v", err)
+	}
+
+	// Custom schemes: lsp:// serves the app + plugins, assets:// raw files.
+	if err := mygo.Protocol.Handle("lsp", &lspHandler{host: h}); err != nil {
+		return fmt.Errorf("lsp protocol: %w", err)
+	}
+	if err := mygo.Protocol.Handle("assets", &assetsHandler{}); err != nil {
+		return fmt.Errorf("assets protocol: %w", err)
+	}
+
+	// IPC services (bound names = window.mygo.call("Name.Method", ...)).
+	mygo.BindAs("LqMain", &LqMain{H: h})
+	mygo.BindAs("LqSync", &LqSync{H: h})
+	mygo.BindAs("LqChannels", &LqChannels{H: h})
+
+	// Single instance: a second launch forwards argv to this process.
+	if !mygoApp().RequestSingleInstanceLock() {
+		log.Printf("[host] another instance is running; exiting")
+		os.Exit(0)
+	}
+	mygoApp().OnSecondInstance(func(args []string, workingDir string) {
+		h.onSecondInstance(args)
+	})
+
+	// Deeplinks: logseq://graph/... etc (url.cljs).
+	mygoApp().OnOpenURL(func(rawURL string) {
+		h.handleDeeplink(rawURL)
+	})
+
+	// App lifecycle.
+	mygoApp().OnWindowAllClosed(func() {
+		// Electron quits on window-all-closed (all platforms in logseq).
+		h.stopAllWorkers()
+		mygoApp().Quit()
+	})
+	mygoApp().OnBeforeQuit(func(e *mygo.QuitEvent) {
+		h.stopAllWorkers()
+	})
+
+	mygoApp().WhenReady(func() {
+		h.onReady()
+	})
+
+	return mygoApp().Run()
+}
+
+// loadHostConfig resolves host configuration from flags/env.
+func loadHostConfig() Config {
+	cfg := Config{}
+	cfg.ResourcesDir = envOr("LOGSEQ_RESOURCES", defaultResourcesDir())
+	cfg.DotDir = envOr("LOGSEQ_DOT_DIR", dotRootDefault())
+	cfg.GraphsDir = daemon.GetDBGraphsDir()
+	cfg.NodeBin = envOr("LOGSEQ_DB_WORKER_NODE_BIN", "node")
+	cfg.ExpectedRevision = os.Getenv("LOGSEQ_EXPECTED_REVISION")
+	cfg.EntryURL = envOr("LOGSEQ_ENTRY_URL", "lsp://logseq.com/index.html")
+	return cfg
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// defaultResourcesDir: next to the executable (static/ layout), falling
+// back to the repo's static dir during development.
+func defaultResourcesDir() string {
+	if exe, err := os.Executable(); err == nil {
+		local := filepath.Join(filepath.Dir(exe), "static")
+		if dirExists(local) {
+			return local
+		}
+	}
+	if wd, err := os.Getwd(); err == nil {
+		if dirExists(filepath.Join(wd, "static")) {
+			return filepath.Join(wd, "static")
+		}
+	}
+	return "static"
+}
+
+func dotRootDefault() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".logseq"
+	}
+	return filepath.Join(home, ".logseq")
+}
+
+// onReady starts the worker manager and opens the first window.
+func (h *Host) onReady() {
+	// Resolve the daemon script early so failures surface in the log.
+	if script, err := daemon.ResolveDaemonScript(h.cfg.ResourcesDir); err != nil {
+		log.Printf("[host] daemon script not found: %v (run `pnpm gulp` to build static/)", err)
+	} else if h.cfg.ExpectedRevision == "" {
+		h.cfg.ExpectedRevision = extractDaemonRevision(script)
+	}
+
+	daemonCfg := daemon.Config{
+		GraphsDir:        h.cfg.GraphsDir,
+		OwnerSource:      "electron",
+		ExpectedRevision: h.cfg.ExpectedRevision,
+		ScriptPath:       h.daemonScript(),
+		NodeBin:          h.cfg.NodeBin,
+	}
+	h.initManager(daemonCfg)
+
+	// Stop outdated workers from older app revisions before first window.
+	if storage, err := h.ensureStorage(); err != nil {
+		log.Printf("[host] resolve storage: %v", err)
+	} else if h.cfg.ExpectedRevision != "" {
+		if err := lifecycle.StopOutdatedWorkers(storage, h.cfg.ExpectedRevision, ""); err != nil {
+			log.Printf("[host] stop outdated workers: %v", err)
+		}
+	}
+
+	if _, err := h.createWindow(createWindowOpts{}); err != nil {
+		log.Fatalf("[host] create main window: %v", err)
+	}
+}
+
+func (h *Host) daemonScript() string {
+	if script, err := daemon.ResolveDaemonScript(h.cfg.ResourcesDir); err == nil {
+		return script
+	}
+	return ""
+}
+
+// onSecondInstance: Electron switches to the existing window and processes
+// a logseq: deeplink found in argv (core.cljs single-instance).
+func (h *Host) onSecondInstance(args []string) {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "logseq:") {
+			h.handleDeeplink(arg)
+			return
+		}
+	}
+	h.focusFirstWindow()
+}
+
+func (h *Host) focusFirstWindow() {
+	if id, ok := h.findWindowOnGraph(""); ok {
+		h.focusWindowByID(id)
+		return
+	}
+	for _, hd := range h.allHandles() {
+		if hd.win != nil && !hd.win.IsDestroyed() {
+			hd.win.Show()
+			hd.win.Focus()
+			return
+		}
+	}
+}
+
+// handleDeeplink implements the logseq-url-handler subset:
+//   - logseq://graph/<identifier>            → open/redirect graph
+//   - logseq://new-window                    → focused window
+//   - logseq://x-callback-url/quickCapture   → quickCapture event
+//   - logseq://x-callback-url/invokeCommand  → invokeCommand event
+//   - logseq://handbook/<key>                → handbook event
+func (h *Host) handleDeeplink(rawURL string) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		h.notifyError(nil, "Cannot parse url: "+rawURL, "", nil)
+		return
+	}
+	host := strings.ToLower(parsed.Host)
+	query := parsed.Query()
+	switch host {
+	case "graph":
+		h.openGraphFromLink(parsed)
+	case "new-window":
+		h.focusFirstWindow()
+	case "x-callback-url":
+		switch strings.TrimPrefix(parsed.Path, "/") {
+		case "quickCapture":
+			h.emitToAll(evQuickCapture, map[string]any{
+				"url":     query.Get("url"),
+				"title":   query.Get("title"),
+				"content": query.Get("content"),
+				"page":    query.Get("page"),
+				"append":  query.Get("append") == "true",
+			})
+		case "invokeCommand":
+			h.emitToAll(evInvokeCommand, map[string]any{
+				"action":  query.Get("action"),
+				"payload": query.Get("payload"),
+			})
+		default:
+			h.notifyError(nil, fmt.Sprintf("Unimplemented x-callback-url action %s", parsed.Path), "", nil)
+		}
+	case "handbook":
+		key := strings.TrimPrefix(parsed.Path, "/")
+		args := map[string]any{}
+		for k, v := range query {
+			if len(v) > 0 {
+				args[k] = v[0]
+			}
+		}
+		h.emitToAll(evHandbook, map[string]any{"key": key, "args": args})
+	default:
+		h.notifyError(nil, fmt.Sprintf("Cannot match `%s`", host), "", nil)
+	}
+}
+
+// openGraphFromLink resolves logseq://graph/<identifier> to a graph and
+// opens a window for it (multi-window redirect is a milestone-2 item).
+func (h *Host) openGraphFromLink(parsed *url.URL) {
+	identifier := strings.TrimPrefix(parsed.Path, "/")
+	if decoded, err := url.PathUnescape(identifier); err == nil {
+		identifier = decoded
+	}
+	graphName := h.resolveGraphName(identifier)
+	if graphName == "" {
+		h.notifyError(nil, "Graph not found: "+identifier, "", nil)
+		return
+	}
+	// An existing window on the graph is focused; otherwise open a new one.
+	graphDir := h.resolveGraphDir(graphName)
+	if id, ok := h.findWindowOnGraph(graphDir); ok {
+		if hd := h.windowByID(id); hd != nil {
+			h.focusWindowByID(id)
+			h.emitTo(hd.win, evRedirectExists, map[string]any{"page-name": queryValue(parsed, "page")})
+			return
+		}
+	}
+	h.emitToAll(evNewWinOfGraph, map[string]any{"repo": graphName})
+	if _, err := h.createWindow(createWindowOpts{Graph: graphName}); err != nil {
+		log.Printf("[host] deeplink window: %v", err)
+	}
+}
+
+func queryValue(parsed *url.URL, key string) string {
+	return parsed.Query().Get(key)
+}
+
+// focusWindowByID shows and focuses the window, if it still exists.
+func (h *Host) focusWindowByID(id int) {
+	if hd := h.windowByID(id); hd != nil && hd.win != nil && !hd.win.IsDestroyed() {
+		hd.win.Show()
+		hd.win.Focus()
+	}
+}
+
+var _ = runtime.GOOS
+var _ = http.StatusOK
