@@ -26,6 +26,7 @@ var (
 	evInvokeCommand  = mygo.NewEvent[any]("invokeCommand")
 	evNewWinOfGraph  = mygo.NewEvent[any]("openNewWindowOfGraph")
 	evHandbook       = mygo.NewEvent[any]("handbook")
+	evLspUpdates     = mygo.NewEvent[any]("lsp-updates")
 	evSetCurGraph    = mygo.NewEvent[any]("setCurrentGraph")
 	evUpdates        = mygo.NewEvent[any]("updates-callback")
 	evPersistZoom    = mygo.NewEvent[any]("persist-zoom-level")

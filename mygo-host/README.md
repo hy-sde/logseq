@@ -1,8 +1,10 @@
-# mygo-host — Go desktop host for Logseq (milestone 1)
+# mygo-host — Go desktop host for Logseq (milestone 2)
 
 A desktop host for the Logseq DB-graph renderer built on the
 [mygo](https://github.com/egoist/mygo) framework, replacing the Electron
-main process for milestone 1.
+main process; milestone 2 ports the remaining Electron main-process
+surfaces (marketplace plugins, updater, app menu, quit flow, deep-link
+app bundle).
 
 Status: **smoke-verified end to end** — renderer boots and mounts under the
 Go host, graph-picker and graph views render, the `logseq-calendar` plugin
@@ -30,7 +32,7 @@ admission/healthz identity check, and `db-worker-runtime` completes in ~1s.
 | db-sync local server (`server/*`) | stub | nil responses |
 | Multi-window graph redirect (`redirectWhenExists`) | partial | window open/focus works; full redirect flow is milestone 2 |
 | `runCli` | done | allowlist git/pandoc/ag/grep/alda |
-| Marketplace plugin install/update/uninstall | stub | milestone 2 |
+| Marketplace plugin install/update/uninstall | done | GitHub release zip → `<dotdir>/plugins/<id>`; `lsp-updates` events (`internal/host/marketplace.go`, plugin.cljs port) |
 | x-callback-url / handbook deeplinks | done | `logseq://graph`, `new-window`, `quickCapture`, `invokeCommand`, `handbook` |
 | Single instance + second-instance argv | done | |
 
@@ -123,6 +125,22 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
    `service = app name + " E2EE"`).
 10. **Updater is a stub** (no-update) — mygo updater integration lands in
     milestone 2.
+
+## Contract deviations (milestone 2)
+
+1. **Marketplace GitHub API probing** (plugin.cljs `valid-github-api!`):
+   the `plugins.logseq.io/github/api` proxy is probed first (2s
+   `/rate_limit`, 60s cache) and falls back to `api.github.com`, matching
+   Electron. Requests honor the renderer's stored proxy options (http
+   proxies; socks5 unsupported — stdlib limitation).
+2. **Semver comparisons** (`semverCoerce`/`semverCompare` in
+   `marketplace.go`) ignore prerelease suffixes; marketplace version gates
+   are numeric `major.minor.patch` comparisons, matching `semver.coerce`
+   for the values plugins ship.
+3. **`download-asset-zip` error double-emit** is collapsed: Electron emits
+   an extra raw-error `lsp-updates` payload before the structured
+   `{status "error", payload {..., error-code}}` one; the host emits only
+   the structured payload (the renderer consumes that one).
 
 ## Layout
 

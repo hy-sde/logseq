@@ -168,6 +168,14 @@ func (l *LqMain) dispatch(ctx context.Context, cmd string, args []any) (any, err
 		return h.DotRoot(), nil
 	case "getUserDefaultPlugins":
 		return h.userDefaultPlugins(), nil
+	case "installMarketPlugin":
+		item, _ := argOf(args, 0).(map[string]any)
+		return nilOnly(h.installMarketPluginCmd(w, item))
+	case "updateMarketPlugin":
+		pkg, _ := argOf(args, 0).(map[string]any)
+		return nilOnly(h.installMarketPluginCmd(w, pkg))
+	case "uninstallMarketPlugin":
+		return nilOnly(h.uninstallMarketPluginCmd(stringArg(args, 0)))
 	case "validateUserExternalPlugins":
 		urls, _ := argOf(args, 0).([]any)
 		return h.validateUserExternalPlugins(urls)
