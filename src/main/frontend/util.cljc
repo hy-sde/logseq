@@ -106,10 +106,21 @@
 
 #?(:cljs
    (do
-     (defn- electron*?
+     (defn- ua-electron?
        []
        (when (and js/window (gobj/get js/window "navigator"))
          (gstring/caseInsensitiveContains js/navigator.userAgent " electron")))
+     (defn mygo?
+       "Running under the mygo (Go) desktop host: a window.mygo bridge is present
+        and the UA is not Electron's."
+       []
+       (boolean (and (not (ua-electron?))
+                     (some? (gobj/get js/window "mygo")))))
+     (defn- electron*?
+       []
+       (when (and js/window (gobj/get js/window "navigator"))
+         (or (ua-electron?)
+             (some? (gobj/get js/window "mygo")))))
      (def electron? (memoize electron*?))))
 
 #?(:cljs
