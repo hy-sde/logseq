@@ -93,13 +93,21 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
-// defaultResourcesDir: next to the executable (static/ layout), falling
-// back to the repo's static dir during development.
+// defaultResourcesDir: next to the executable (static/ layout), inside a
+// macOS app bundle (Contents/Resources/static, produced by
+// scripts/build-app.sh), falling back to the repo's static dir during
+// development.
 func defaultResourcesDir() string {
 	if exe, err := os.Executable(); err == nil {
-		local := filepath.Join(filepath.Dir(exe), "static")
+		dir := filepath.Dir(exe)
+		local := filepath.Join(dir, "static")
 		if dirExists(local) {
 			return local
+		}
+		// .app bundle layout: <app>/Contents/MacOS/<bin>.
+		bundled := filepath.Join(dir, "..", "Resources", "static")
+		if dirExists(bundled) {
+			return filepath.Clean(bundled)
 		}
 	}
 	if wd, err := os.Getwd(); err == nil {
@@ -190,6 +198,7 @@ func (h *Host) focusFirstWindow() {
 //   - logseq://x-callback-url/invokeCommand  → invokeCommand event
 //   - logseq://handbook/<key>                → handbook event
 func (h *Host) handleDeeplink(rawURL string) {
+	log.Printf("[host] deeplink %s", rawURL)
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
 		h.notifyError(nil, "Cannot parse url: "+rawURL, "", nil)

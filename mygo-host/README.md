@@ -32,6 +32,7 @@ admission/healthz identity check, and `db-worker-runtime` completes in ~1s.
 | db-sync local server (`server/*`) | stub | nil responses |
 | Multi-window graph redirect (`redirectWhenExists`) | partial | window open/focus works; full redirect flow is milestone 2 |
 | `runCli` | done | allowlist git/pandoc/ag/grep/alda |
+| Deep links via bundled .app | done | `scripts/build-app.sh` → signed `Logseq.app` with `CFBundleURLTypes`; `OnOpenURL` dispatch verified |
 | Marketplace plugin install/update/uninstall | done | GitHub release zip → `<dotdir>/plugins/<id>`; `lsp-updates` events (`internal/host/marketplace.go`, plugin.cljs port) |
 | x-callback-url / handbook deeplinks | done | `logseq://graph`, `new-window`, `quickCapture`, `invokeCommand`, `handbook` |
 | Single instance + second-instance argv | done | |
@@ -53,12 +54,22 @@ patches (`src/main/frontend/util.cljc` mygo detection,
 `src/main/electron/ipc.cljs` plain-JSON IPC branch). A renderer built from
 `master` has no `window.mygo` code path and falls back to memory-fs.
 
-`mygo.json` next to `main.go` declares the app (name, identifier,
-`urlSchemes: ["logseq"]`). Note: on macOS, deep-link (`logseq://`) scheme
-registration requires the scheme inside a bundle's `Info.plist`
-(`CFBundleURLTypes`) — a bare binary logs a registration warning and
-continues without deep links. Producing the `.app` via `mygo build` is
-milestone 2.
+`mygo.json` next to `main.go` declares the app (name, identifier, version,
+`urlSchemes: ["logseq"]`). On macOS the `logseq://` scheme is only
+registered from a bundle's `Info.plist` (`CFBundleURLTypes`) — use
+`scripts/build-app.sh` to produce a signed `Logseq.app`:
+
+```
+cd mygo-host && scripts/build-app.sh        # add -debug for the web inspector
+open dist/darwin-arm64/Logseq.app
+```
+
+The script copies the built renderer (`../static`) into the bundle
+(`Contents/Resources/static`, resolved by `defaultResourcesDir`) and builds
+the CLI from the pinned mygo checkout when `mygo` is not on `PATH`.
+Deep-link smoke: `open -a <path-to-built-Logseq.app> "logseq://graph/<name>"`
+(`open -b com.logseq.logseq` routes to an installed release Logseq with the
+same bundle id — target the built bundle by path).
 
 Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
 `go build ./... && go vet ./...` are clean; no third-party Go deps —

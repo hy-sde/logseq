@@ -2,5 +2,6 @@
   "name": "Logseq",
   "slug": "logseq",
   "identifier": "com.logseq.logseq",
+  "version": "0.0.1",
   "urlSchemes": ["logseq"]
 }
