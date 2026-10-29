@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+
+	"github.com/egoist/mygo"
 )
 
 // LqChannels handles every non-main, non-sync invoke channel:
@@ -19,6 +21,7 @@ type LqChannels struct{ H *Host }
 // Handle dispatches one aux channel call. args carries the call arguments.
 func (l *LqChannels) Handle(ctx context.Context, channel string, args []any) (any, error) {
 	h := l.H
+	w := mygo.CallerWindow(ctx)
 	switch channel {
 	case "call-application", "call-main-win":
 		// js-invoke app/win type args — plugin/app integration points that
@@ -39,12 +42,14 @@ func (l *LqChannels) Handle(ctx context.Context, channel string, args []any) (an
 		h.setQuitDirty(len(args) > 0 && boolOfAny(args[0]))
 		return nil, nil
 	case "check-for-updates":
-		// Updater stub: no auto-update in milestone 1.
-		evUpdates.Broadcast(map[string]any{"type": "update-not-available", "payload": nil})
+		autoDownload := len(args) > 0 && boolOfAny(args[0])
+		go h.checkForUpdates(w, autoDownload)
 		return nil, nil
 	case "install-updates":
+		h.installUpdatesAndQuitApp(w, len(args) > 0 && boolOfAny(args[0]))
 		return nil, nil
 	case "get-downloaded-update":
+		// The host never downloads updates; keep the contract reply nil.
 		return nil, nil
 	case "open-external":
 		return nil, h.openExternalCmd(stringArg(args, 0))

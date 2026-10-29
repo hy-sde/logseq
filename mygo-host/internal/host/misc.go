@@ -219,11 +219,6 @@ func (h *Host) openPathCmd(p string) error {
 	return mygoShell().OpenPath(p)
 }
 
-// quitAndInstall / updater stubs (milestone 1: no auto-update).
-func (h *Host) updaterStub() map[string]any {
-	return map[string]any{"type": "update-not-available"}
-}
-
 var hiddenSegmentRe = regexp.MustCompile(`(^|/)\.[^.]+`)
 
 func hiddenReMatch(rpath string) bool { return hiddenSegmentRe.MatchString(rpath) }

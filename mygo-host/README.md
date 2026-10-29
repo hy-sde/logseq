@@ -27,7 +27,7 @@ admission/healthz identity check, and `db-worker-runtime` completes in ~1s.
 | Dialogs / keychain / clipboard / shell | done | mygo Dialog/Secrets/Shell; clipboard via osascript/pbpaste (macOS) |
 | http request commands + abort | done | returnType json/text/base64/arraybuffer |
 | Proxy `setProxy` | partial | stored + applied to host HTTP clients; window session proxy not applied |
-| Updater (`check-for-updates` etc.) | stub | replies `update-not-available` (mygo updater = milestone 2) |
+| Updater (`check-for-updates` etc.) | done | GitHub latest-release check (`LOGSEQ_UPDATES_URL` override) vs `LOGSEQ_VERSION`/mygo.json; `updates-callback` events (`internal/host/updater.go`) |
 | Semantic search / embeddings | stub | endpoint args pass-through only |
 | db-sync local server (`server/*`) | stub | nil responses |
 | Multi-window graph redirect (`redirectWhenExists`) | partial | window open/focus works; full redirect flow is milestone 2 |
@@ -141,6 +141,18 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
    an extra raw-error `lsp-updates` payload before the structured
    `{status "error", payload {..., error-code}}` one; the host emits only
    the structured payload (the renderer consumes that one).
+4. **Updater has no auto-download**: `check-for-updates` fetches the
+   latest `logseq/logseq` GitHub release (`LOGSEQ_UPDATES_URL` overrides
+   the endpoint; expected shape = GitHub release JSON) and pushes the
+   `updates-callback` sequence `checking-for-update →
+   update-available|update-not-available|error → completed`. There is no
+   download progress / downloaded state; `update-available` payload
+   carries `{version, name, releaseName, releaseNotes, releaseDate, url}`.
+   The boot-time auto-check (Electron `init-auto-updater!`, prod only) is
+   skipped — updates are checked from Settings.
+5. **`install-updates` (installUpdatesAndQuitApp) cannot self-replace** a
+   running Go binary: it logs the limitation and opens the GitHub release
+   page in the browser instead of quitting + installing.
 
 ## Layout
 
