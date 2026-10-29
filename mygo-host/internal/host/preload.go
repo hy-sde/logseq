@@ -10,9 +10,13 @@ package host
 // shim converts back to Uint8Array (JSON cannot carry binary).
 const preloadJS = `(() => {
   if (window.apis) return;
+  // Boot-error collector: must exist before any app script runs.
+  window.__lqErrors = [];
+  window.addEventListener("error", function(e){ window.__lqErrors.push(String(e.message) + " @ " + String(e.filename) + ":" + String(e.lineno)); });
+  window.addEventListener("unhandledrejection", function(e){ window.__lqErrors.push("rejection: " + String(e.reason && (e.reason.stack || e.reason.message) || e.reason)); });
   const MY = () => window.mygo;
   const call = (method, ...args) => MY().call(method, ...args);
-  const mainCmd = (...args) => call('LqMain.Handle', args);
+  const mainCmd = (arg) => call('LqMain.Handle', arg);
 
   const bytesToBase64 = (buf) => {
     const bytes = new Uint8Array(buf);

@@ -186,7 +186,10 @@ func (h *Host) setCurrentGraphCmd(w *mygoWindow, graphName string) (any, error) 
 	if graphName != "" {
 		// Sync auto backup bookkeeping happens inside the manager.
 		h.setWindowGraph(w.ID(), nextPath, graphName)
-		evSetCurGraph.Emit(w, graphName)
+		// NOTE: no evSetCurGraph.Emit here — Electron's :setCurrentGraph
+		// handler never pushes back to the renderer; emitting to the sender
+		// makes the renderer's "setCurrentGraph" listener re-call this IPC
+		// forever (346k calls in 70s during smoke21).
 	} else {
 		w.Close()
 	}

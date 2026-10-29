@@ -19,6 +19,26 @@ func init() {
 	_ = mimeAddType(".wasm", "application/wasm")
 }
 
+// serveFilePath writes one file with range support and mime typing.
+// We deliberately avoid http.ServeFile: it redirects any request whose
+// URL path ends in "/index.html" to "./", which WebKit cannot follow on
+// a custom scheme (the page then renders empty).
+func serveFilePath(w http.ResponseWriter, r *http.Request, target string) {
+	f, err := os.Open(target)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-cache")
+	http.ServeContent(w, r, path.Base(target), st.ModTime(), f)
+}
+
 // serveFileFrom writes a file (or directory index.html) from disk under root.
 func serveFileFrom(w http.ResponseWriter, r *http.Request, root, rel string) {
 	clean := path.Clean("/" + strings.TrimPrefix(rel, "/"))
@@ -45,8 +65,7 @@ func serveFileFrom(w http.ResponseWriter, r *http.Request, root, rel string) {
 			return
 		}
 	}
-	w.Header().Set("Cache-Control", "no-cache")
-	http.ServeFile(w, r, target)
+	serveFilePath(w, r, target)
 }
 
 // lspHandler routes lsp://logseq.com/index.html, lsp://logseq.io/plugins/<id>/…,
@@ -115,7 +134,7 @@ func serveExternal(w http.ResponseWriter, r *http.Request, rest string) {
 	if err != nil {
 		rel = encRel
 	}
-	http.ServeFile(w, r, filepath.Join(root, filepath.FromSlash(path.Clean("/"+rel))))
+	serveFilePath(w, r, filepath.Join(root, filepath.FromSlash(path.Clean("/"+rel))))
 }
 
 var driveHostRe = regexp.MustCompile(`^[a-zA-Z]:$`)
@@ -135,7 +154,7 @@ func (assetsHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// Protected-assets schema path quirk.
 	decoded = strings.ReplaceAll(decoded, "/logseq__colon/", ":/")
-	http.ServeFile(w, r, filepath.FromSlash(decoded))
+	serveFilePath(w, r, decoded)
 }
 
 // decodePath decodes a %-escaped URL path leniently (bad escapes stay raw).

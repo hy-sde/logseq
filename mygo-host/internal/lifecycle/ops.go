@@ -664,9 +664,20 @@ func StartGraph(opts StartOptions) (map[string]any, error) {
 	// readiness poll (after lease release), 30s budget
 	budget := 30000
 	last := time.Now()
+	var lastAdmissionErr error
 	for {
+		// The daemon rewrites state.json non-atomically when it publishes
+		// its phase/registration (it does not take our flock), so a poll can
+		// observe a mid-write file. Admission mismatches during the readiness
+		// window are transient: retry within budget, and rely on the healthz
+		// identity check below as the authoritative guard.
 		if err := checkAdmission(ctx, record); err != nil {
-			return nil, err
+			lastAdmissionErr = err
+			if budget <= 0 {
+				return nil, err
+			}
+		} else {
+			lastAdmissionErr = nil
 		}
 		if !pidExists(t.PID) {
 			return nil, coded("server-start-failed", "Worker exited before becoming ready")
@@ -685,6 +696,9 @@ func StartGraph(opts StartOptions) (map[string]any, error) {
 			}
 		}
 		if budget <= 0 {
+			if lastAdmissionErr != nil {
+				return nil, lastAdmissionErr
+			}
 			return nil, coded("server-start-failed", "Worker failed to become ready")
 		}
 		time.Sleep(50 * time.Millisecond)

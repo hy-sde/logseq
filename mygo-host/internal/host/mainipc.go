@@ -3,8 +3,10 @@ package host
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +29,15 @@ type LqMain struct{ H *Host }
 // Handle dispatches one command. payload is either []any or (legacy) a
 // transit-encoded string.
 func (l *LqMain) Handle(ctx context.Context, payload any) (any, error) {
+	if b, err := json.Marshal(payload); err == nil {
+		s := string(b)
+		if len(s) > 200 {
+			s = s[:200] + "..."
+		}
+		log.Printf("[ipc] payload %T: %s", payload, s)
+	} else {
+		log.Printf("[ipc] payload %T (unmarshalable)", payload)
+	}
 	var msg []any
 	switch p := payload.(type) {
 	case []any:
@@ -51,7 +62,14 @@ func (l *LqMain) Handle(ctx context.Context, payload any) (any, error) {
 		return nil, errors.New("empty ipc message")
 	}
 	cmd := strings.TrimPrefix(stringArg(msg, 0), ":")
-	return l.dispatch(ctx, cmd, msg[1:])
+	log.Printf("[ipc] -> %s (%d args)", cmd, len(msg)-1)
+	res, err := l.dispatch(ctx, cmd, msg[1:])
+	if err != nil {
+		log.Printf("[ipc] <- %s ERROR: %v", cmd, err)
+	} else {
+		log.Printf("[ipc] <- %s ok", cmd)
+	}
+	return res, err
 }
 
 func (l *LqMain) dispatch(ctx context.Context, cmd string, args []any) (any, error) {

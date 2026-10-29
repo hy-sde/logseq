@@ -1,0 +1,6 @@
+{
+  "name": "Logseq",
+  "slug": "logseq",
+  "identifier": "com.logseq.logseq",
+  "urlSchemes": ["logseq"]
+}

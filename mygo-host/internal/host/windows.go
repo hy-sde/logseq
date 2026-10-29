@@ -101,26 +101,46 @@ func (h *Host) createWindow(opts createWindowOpts) (*mygoWindow, error) {
 	if opts.Graph != "" {
 		entryURL = strings.TrimSuffix(entryURL, "/index.html") + "/#/?graph=" + opts.Graph
 	}
-	win := mygo.NewWindow(mygo.WindowOptions{
-		Title:                "Logseq",
-		URL:                  entryURL,
-		Width:                1280,
-		Height:               800,
-		MinWidth:             940,
-		MinHeight:            460,
-		StateKey:             "logseq-main",
-		Hidden:               true,
-		BackgroundColor:      "#ffffff",
-		AutoHideMenuBar:      runtime.GOOS != "darwin",
-		TitleBarStyle:        mygo.TitleBarHiddenInset,
-		TrafficLightPosition: &mygo.Point{X: 16, Y: 16},
+	wopts := mygo.WindowOptions{
+		Title:           "Logseq",
+		URL:             entryURL,
+		Width:           1280,
+		Height:          800,
+		MinWidth:        940,
+		MinHeight:       460,
+		StateKey:        "logseq-main",
+		BackgroundColor: "#ffffff",
+		AutoHideMenuBar: runtime.GOOS != "darwin",
 		Page: mygo.PageOptions{
 			PreloadScript: preloadJS,
 			DevTools:      devToolsOption(),
 		},
-	})
+	}
+	// LOGSEQ_WIN_CHROME=1 opts into hidden-inset titlebar chrome. DISABLED by
+	// default: mygo v0.7.1 on macOS paints a BLANK window when either
+	// Hidden:true or TitleBarStyle:TitleBarHiddenInset is set (window stays
+	// non-key and the WKWebView layer never composites; bisected 2026-10-29,
+	// CapturePage shows content fine → framework bug, not ours).
+	if os.Getenv("LOGSEQ_WIN_CHROME") == "1" {
+		wopts.Hidden = true
+		wopts.TitleBarStyle = mygo.TitleBarHiddenInset
+		wopts.TrafficLightPosition = &mygo.Point{X: 16, Y: 16}
+	}
+	win := mygo.NewWindow(wopts)
 	h.trackWindowHandle(win, opts.Graph)
-	win.OnReadyToShow(func() { win.Show() })
+	h.attachDebugProbe(win)
+	if wopts.Hidden {
+		// mygo's Show() orders the window front but does NOT activate it
+		// (internal/darwin/window.go: "Showing it does not activate"); a
+		// non-key window never paints WKWebView content on macOS.
+		win.OnReadyToShow(func() {
+			win.Show()
+			win.Focus()
+		})
+	}
+	// Plain executables do not come to the front on their own; a non-key
+	// window may never paint WKWebView content on macOS.
+	mygo.App.Focus()
 	return win, nil
 }
 

@@ -78,7 +78,9 @@ func registered(current map[string]any, rec map[string]any) bool {
 		}
 		match := true
 		for key, value := range rec {
-			if record[key] != value {
+			// JSON round-trips turn our ints into float64; compare with
+			// numeric coercion, not raw interface equality.
+			if !sameVal(record[key], value) {
 				match = false
 				break
 			}
@@ -88,6 +90,35 @@ func registered(current map[string]any, rec map[string]any) bool {
 		}
 	}
 	return false
+}
+
+// sameVal compares two loosely-typed JSON-ish values: numerics numerically
+// (int vs float64 after a readJSON round-trip), everything else by string.
+func sameVal(a, b any) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	af, aok := asFloat(a)
+	bf, bok := asFloat(b)
+	if aok && bok {
+		return af == bf
+	}
+	return fmt.Sprint(a) == fmt.Sprint(b)
+}
+
+func asFloat(v any) (float64, bool) {
+	switch n := v.(type) {
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case float64:
+		return n, true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	}
+	return 0, false
 }
 
 func checkAdmission(ctx *GraphCtx, record map[string]any) error {
@@ -149,7 +180,9 @@ func readRuntime(ctx *GraphCtx, record map[string]any) (map[string]any, error) {
 			return nil, nil
 		}
 		for key, value := range runtimeRecordFromRecord(record) {
-			if runtime[key] != value {
+			// JSON round-trip turns pid (int) into float64; raw interface
+			// equality would fail forever. Compare with numeric coercion.
+			if !sameVal(runtime[key], value) {
 				return nil, fail("Worker runtime identity differs from registration")
 			}
 		}
