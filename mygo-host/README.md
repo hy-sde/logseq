@@ -123,6 +123,48 @@ everywhere):
   `MYGO_WINDOWS_CERTIFICATE_PASSWORD`, or `windows.signCommand`, in
   `mygo.json` before building (mygo docs/distribution.md).
 
+## Updates (Ed25519-signed manifest feed)
+
+The host's updater (`internal/host/updater.go`) accepts two feed modes:
+
+- **GitHub-release mode** (default): `check-for-updates` reads the latest
+  `logseq/logseq` GitHub release (`LOGSEQ_UPDATES_URL` overrides the
+  endpoint).
+- **Manifest mode** (`LOGSEQ_UPDATE_PUBLIC_KEY` set): `LOGSEQ_UPDATES_URL`
+  points at a mygo `update-<target>.json` manifest
+  (docs/updates.md schema). The manifest is Ed25519-verified before any
+  update is announced; the archive itself carries mygo's signature over
+  its SHA-256 digest and is verified by the updater at download time.
+  Emitted `updates-callback` payloads are identical to GitHub mode.
+
+Publishing a release:
+
+```
+mygo keygen -o ~/.config/mygo/update-keys     # mygo-update.key (SECRET) + .pub
+scripts/build-dist.sh darwin/arm64            # or the full matrix
+go build -o /tmp/gen-update-manifest ./cmd/gen-update-manifest
+/tmp/gen-update-manifest \
+  -payload dist/darwin-arm64 -target darwin-arm64 -version 0.0.2 \
+  -base-url https://updates.example.com/logseq \
+  -notes-file release-notes.md \
+  -key-file ~/.config/mygo/update-keys/mygo-update.key \
+  -out dist/publish
+# → dist/publish/logseq-0.0.2-darwin-arm64.tar.gz + update-darwin-arm64.json
+# round-trip check before publishing:
+/tmp/gen-update-manifest -verify -dir dist/publish -target darwin-arm64 \
+  -pub-file ~/.config/mygo/update-keys/mygo-update.pub
+```
+
+Then publish both files to a GitHub release (tag `v0.0.2` — upload the
+manifests LAST: installed apps read `update-<target>.json` of the latest
+release) or copy them to the HTTPS directory of `-base-url`. The
+application-side feed needs `LOGSEQ_UPDATE_PUBLIC_KEY` = the base64
+contents of `mygo-update.pub` and `LOGSEQ_UPDATES_URL` = the manifest URL.
+Private keys are gitignored (`mygo-update.key`); only `.pub` values ever
+enter a repo or CI secret (`MYGO_UPDATER_PRIVATE_KEY` for `mygo build`
+delta generation). `install-updates` still cannot self-replace a running
+binary — see milestone-2 deviation 5.
+
 ## Debugging
 
 - `LOGSEQ_DEBUG=1` attaches the debug probe: `OnDidFailLoad` logging, delayed
