@@ -30,7 +30,7 @@ admission/healthz identity check, and `db-worker-runtime` completes in ~1s.
 | Updater (`check-for-updates` etc.) | done | GitHub latest-release check (`LOGSEQ_UPDATES_URL` override) vs `LOGSEQ_VERSION`/mygo.json; `updates-callback` events (`internal/host/updater.go`) |
 | Semantic search / embeddings | stub | endpoint args pass-through only |
 | db-sync local server (`server/*`) | stub | nil responses |
-| Multi-window graph redirect (`redirectWhenExists`) | partial | window open/focus works; full redirect flow is milestone 2 |
+| Multi-window graph redirect (`redirectWhenExists`) | done | `logseq://graph/<id>?page|block-id|file` redirects the window on that graph; `logseq://new-window/...` opens a renderer-driven second window and replays the redirect at `graphReady` |
 | `runCli` | done | allowlist git/pandoc/ag/grep/alda |
 | Deep links via bundled .app | done | `scripts/build-app.sh` → signed `Logseq.app` with `CFBundleURLTypes`; `OnOpenURL` dispatch verified |
 | Marketplace plugin install/update/uninstall | done | GitHub release zip → `<dotdir>/plugins/<id>`; `lsp-updates` events (`internal/host/marketplace.go`, plugin.cljs port) |
@@ -164,6 +164,15 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
 5. **`install-updates` (installUpdatesAndQuitApp) cannot self-replace** a
    running Go binary: it logs the limitation and opens the GitHub release
    page in the browser instead of quitting + installing.
+6. **`redirectWhenExists` targeting** mirrors `url.cljs` with one
+   deviation: Electron drops the `openNewWindowOfGraph` send when no
+   window is focused (`send-to-renderer` with a nil window is a no-op);
+   the host falls back to the first alive window so a deep link always
+   opens a graph window. Redirect payloads send JSON `null` for absent
+   `page`/`block-id`/`file` params (empty strings are truthy in CLJS).
+   The pending-redirect slot is consumed by the first `graphReady`
+   regardless of the reported graph, matching the Electron
+   `:window/once-graph-ready` slot.
 
 ## Layout
 

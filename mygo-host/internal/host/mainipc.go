@@ -206,7 +206,7 @@ func (l *LqMain) dispatch(ctx context.Context, cmd string, args []any) (any, err
 	case "graphHasMultipleWindows":
 		return h.graphHasMultipleWindowsCmd(stringArg(args, 0)), nil
 	case "graphReady":
-		return nil, nil
+		return nil, h.graphReadyCmd(w, stringArg(args, 0))
 	case "window-minimize", "window-toggle-maximized", "window-toggle-fullscreen", "window-close",
 		"set-window-title", "theme-loaded", "find-in-page", "clear-find-in-page":
 		return h.windowCommand(w, cmd, args)

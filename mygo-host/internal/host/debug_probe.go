@@ -27,6 +27,12 @@ func (h *Host) attachDebugProbe(w *mygoWindow) {
 		window.addEventListener("unhandledrejection", function(e){ window.__lqErrors.push("rejection: " + String(e.reason && e.reason.stack || e.reason)); });
 		var oe = console.error;
 		console.error = function(){ try { window.__lqErrors.push("console.error: " + Array.from(arguments).map(function(a){return a && a.stack || String(a)}).join(" | ")); } catch(_){} oe.apply(console, arguments); };
+		if (!window.__evtCapture) {
+			window.__evtCapture = [];
+			["redirectWhenExists", "redirect", "openNewWindowOfGraph", "notification", "updates-callback", "quickCapture"].forEach(function(name){
+				try { window.apis.addListener(name, function(d){ window.__evtCapture.push(name + ": " + JSON.stringify(d).slice(0, 220)); }); } catch(_){}
+			});
+		}
 		return "installed";
 	})()`
 	probe := `(function(){
@@ -43,6 +49,7 @@ func (h *Host) attachDebugProbe(w *mygoWindow) {
 			bodyBg: bodyCS.backgroundColor, bodyColor: bodyCS.color,
 			fonts: document.fonts ? document.fonts.status : 'n/a',
 			text: String(document.body.innerText).slice(0, 150),
+			evts: (window.__evtCapture || []).slice(-6),
 			errs: (window.__lqErrors || []).slice(0, 6)
 		});
 	})()`

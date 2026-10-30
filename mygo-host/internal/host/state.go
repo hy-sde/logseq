@@ -2,11 +2,11 @@
 package host
 
 import (
+	"encoding/json"
+	"fmt"
 	"github.com/egoist/mygo"
 	"logseq/mygo-host/internal/lifecycle"
 	"logseq/mygo-host/internal/manager"
-	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -42,12 +42,13 @@ type winState struct {
 type Host struct {
 	cfg Config
 
-	mu           sync.Mutex
-	windows      map[int]*winState
-	allWindows   map[int]*windowHandle
-	quitDirty    bool
-	proxyOptions map[string]any
-	aborts       map[string]func()
+	mu              sync.Mutex
+	windows         map[int]*winState
+	allWindows      map[int]*windowHandle
+	pendingRedirect *pendingRedirect
+	quitDirty       bool
+	proxyOptions    map[string]any
+	aborts          map[string]func()
 
 	mgr    *manager.Manager
 	locale string
@@ -55,6 +56,31 @@ type Host struct {
 	storageOnce sync.Once
 	storage     *lifecycle.Storage
 	storageErr  error
+}
+
+// pendingRedirect carries a deeplink redirect for a graph that had no open
+// window when the link arrived; the first graphReady of a window on that
+// graph consumes it (Electron :window/once-graph-ready, url.cljs:55).
+type pendingRedirect struct {
+	graphName string // canonical repo the redirect targets
+	payload   map[string]any
+}
+
+func (h *Host) setPendingRedirect(graphName string, payload map[string]any) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.pendingRedirect = &pendingRedirect{graphName: graphName, payload: payload}
+}
+
+// takePendingRedirect returns and clears the pending redirect, mirroring
+// Electron's single :window/once-graph-ready slot (cleared by the first
+// graphReady regardless of which graph reports ready).
+func (h *Host) takePendingRedirect() *pendingRedirect {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	pending := h.pendingRedirect
+	h.pendingRedirect = nil
+	return pending
 }
 
 // windowHandle pairs a mygo window with its lifecycle metadata.
@@ -68,10 +94,10 @@ type windowHandle struct {
 
 func newHost(cfg Config) *Host {
 	return &Host{
-		cfg:         cfg,
-		windows:     map[int]*winState{},
-		allWindows:  map[int]*windowHandle{},
-		aborts:      map[string]func(){},
+		cfg:        cfg,
+		windows:    map[int]*winState{},
+		allWindows: map[int]*windowHandle{},
+		aborts:     map[string]func(){},
 	}
 }
 
@@ -178,6 +204,13 @@ func (h *Host) windowGraph(id int) (string, string) {
 	return "", ""
 }
 
+// countWindows returns the number of alive windows.
+func (h *Host) countWindows() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.allWindows)
+}
+
 // countOtherWindows counts live windows on a graph dir other than `exceptID`.
 func (h *Host) countOtherWindows(graphDir string, exceptID int) int {
 	h.mu.Lock()
@@ -238,7 +271,6 @@ func (h *Host) popAbort(id string) (func(), bool) {
 	delete(h.aborts, id)
 	return cancel, ok
 }
-
 
 // boolArg returns args[i] as bool (default when missing/invalid).
 func boolArg(args []any, i int, def bool) bool {

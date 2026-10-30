@@ -208,9 +208,11 @@ func (h *Host) handleDeeplink(rawURL string) {
 	query := parsed.Query()
 	switch host {
 	case "graph":
-		h.openGraphFromLink(parsed)
+		h.openGraphFromLink(parsed, false)
 	case "new-window":
-		h.focusFirstWindow()
+		// url.cljs: new-window is local-url-handler with force-new-window?,
+		// so the path carries the graph identifier; a bare URL errors.
+		h.openGraphFromLink(parsed, true)
 	case "x-callback-url":
 		switch strings.TrimPrefix(parsed.Path, "/") {
 		case "quickCapture":
@@ -243,35 +245,91 @@ func (h *Host) handleDeeplink(rawURL string) {
 	}
 }
 
-// openGraphFromLink resolves logseq://graph/<identifier> to a graph and
-// opens a window for it (multi-window redirect is a milestone-2 item).
-func (h *Host) openGraphFromLink(parsed *url.URL) {
-	identifier := strings.TrimPrefix(parsed.Path, "/")
+// openGraphFromLink resolves logseq://graph/<identifier> and mirrors
+// url.cljs local-url-handler: a window already on the graph is focused and
+// redirected to the requested page/block; otherwise a new window is opened
+// (renderer-driven, or directly when none is alive) and the redirect rides
+// the pendingRedirect slot until that window reports graphReady.
+func (h *Host) openGraphFromLink(parsed *url.URL, forceNewWindow bool) {
+	// url.cljs replaces every "/" in the pathname, then decodes.
+	identifier := strings.ReplaceAll(parsed.Path, "/", "")
 	if decoded, err := url.PathUnescape(identifier); err == nil {
 		identifier = decoded
 	}
 	graphName := h.resolveGraphName(identifier)
 	if graphName == "" {
-		h.notifyError(nil, "Graph not found: "+identifier, "", nil)
+		h.graphIdentifierError(identifier)
 		return
 	}
-	// An existing window on the graph is focused; otherwise open a new one.
+	query := parsed.Query()
+	pageName, blockID, file := query.Get("page"), query.Get("block-id"), query.Get("file")
+	hasTarget := pageName != "" || blockID != "" || file != ""
+	nilIfEmpty := func(s string) any {
+		if s == "" {
+			return nil
+		}
+		return s
+	}
+
 	graphDir := h.resolveGraphDir(graphName)
-	if id, ok := h.findWindowOnGraph(graphDir); ok {
-		if hd := h.windowByID(id); hd != nil {
+	id, onGraph := h.findWindowOnGraph(graphDir)
+	openNewWindow := forceNewWindow || !onGraph
+	if hasTarget {
+		// Missing keys must be null (not ""): empty strings are truthy in
+		// CLJS and the renderer's cond would take the page-name branch.
+		payload := map[string]any{"page-name": nilIfEmpty(pageName), "block-id": nilIfEmpty(blockID), "file": nilIfEmpty(file)}
+		if openNewWindow {
+			h.setPendingRedirect(graphName, payload)
+		} else if hd := h.windowByID(id); hd != nil {
 			h.focusWindowByID(id)
-			h.emitTo(hd.win, evRedirectExists, map[string]any{"page-name": queryValue(parsed, "page")})
-			return
+			h.emitTo(hd.win, evRedirectExists, payload)
 		}
 	}
-	h.emitToAll(evNewWinOfGraph, map[string]any{"repo": graphName})
-	if _, err := h.createWindow(createWindowOpts{Graph: graphName}); err != nil {
-		log.Printf("[host] deeplink window: %v", err)
+	if !openNewWindow {
+		return
+	}
+	// Electron asks a renderer to open the window (openNewWindowOfGraph →
+	// openNewWindow ipc). With no window alive there is no renderer to ask,
+	// so create it directly.
+	if h.countWindows() == 0 {
+		if _, err := h.createWindow(createWindowOpts{Graph: graphName}); err != nil {
+			log.Printf("[host] deeplink window: %v", err)
+		}
+		return
+	}
+	if win := h.focusedOrFirstWindow(); win != nil {
+		// listener.cljs openNewWindowOfGraph takes the bare repo string.
+		h.emitTo(win, evNewWinOfGraph, graphName)
 	}
 }
 
-func queryValue(parsed *url.URL, key string) string {
-	return parsed.Query().Get(key)
+// graphIdentifierError mirrors url.cljs graph-identifier-error-handler.
+func (h *Host) graphIdentifierError(identifier string) {
+	if identifier != "" {
+		h.notifyError(nil,
+			fmt.Sprintf("Failed to open link. Cannot match graph identifier `%s` to any linked graph.", identifier),
+			":electron/link-open-failed-no-graph", []any{identifier})
+		return
+	}
+	h.notifyError(nil, "Failed to open link. Missing graph identifier after `logseq://graph/`.",
+		":electron/link-open-failed-missing-graph", nil)
+}
+
+// focusedOrFirstWindow returns the focused window, falling back to the first
+// alive window (Electron send-to-renderer drops the message instead; we keep
+// the deeplink actionable).
+func (h *Host) focusedOrFirstWindow() *mygoWindow {
+	for _, hd := range h.allHandles() {
+		if hd.win != nil && !hd.win.IsDestroyed() && hd.win.IsFocused() {
+			return hd.win
+		}
+	}
+	for _, hd := range h.allHandles() {
+		if hd.win != nil && !hd.win.IsDestroyed() {
+			return hd.win
+		}
+	}
+	return nil
 }
 
 // focusWindowByID shows and focuses the window, if it still exists.

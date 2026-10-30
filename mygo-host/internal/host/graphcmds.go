@@ -1,7 +1,6 @@
 package host
 
 import (
-	"sync"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"logseq/mygo-host/internal/lifecycle"
 	"logseq/mygo-host/internal/lqgraph"
@@ -251,12 +251,12 @@ func getAllFiles(dir string, exts []string) []map[string]any {
 			return nil
 		}
 		out = append(out, map[string]any{
-			"path":          p,
-			"size":          info.Size(),
-			"accessTime":    info.ModTime().UnixMilli(),
-			"modifiedTime":  info.ModTime().UnixMilli(),
-			"changeTime":    info.ModTime().UnixMilli(),
-			"birthTime":     info.ModTime().UnixMilli(),
+			"path":         p,
+			"size":         info.Size(),
+			"accessTime":   info.ModTime().UnixMilli(),
+			"modifiedTime": info.ModTime().UnixMilli(),
+			"changeTime":   info.ModTime().UnixMilli(),
+			"birthTime":    info.ModTime().UnixMilli(),
 		})
 		return nil
 	})
@@ -447,6 +447,19 @@ func (h *Host) runCliCmd(opts map[string]any) (any, error) {
 func (h *Host) openNewWindowCmd(repo string) error {
 	_, err := h.createWindow(createWindowOpts{Graph: repo})
 	return err
+}
+
+// graphReadyCmd consumes a pending deeplink redirect when the ready window
+// opened the targeted graph (Electron handler.cljs :graph-ready →
+// :window/once-graph-ready; the slot is cleared by the first graphReady).
+func (h *Host) graphReadyCmd(w *mygoWindow, graph string) error {
+	if w == nil {
+		return nil
+	}
+	if pending := h.takePendingRedirect(); pending != nil && pending.graphName == graph {
+		h.emitTo(w, evRedirectExists, pending.payload)
+	}
+	return nil
 }
 
 func (h *Host) graphHasOtherWindowCmd(w *mygoWindow, graph string) bool {
