@@ -77,6 +77,52 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
 `go build ./... && go vet ./...` are clean; no third-party Go deps —
 `github.com/egoist/mygo` only (replaced to the local checkout in go.mod).
 
+## Packaging
+
+`scripts/build-dist.sh` produces the distributable artifacts for all
+platforms via `mygo build` cross-compilation (no credentials needed for
+unsigned builds):
+
+```
+cd mygo-host && scripts/build-dist.sh                       # all five targets
+scripts/build-dist.sh darwin/arm64 darwin/amd64             # subset
+SKIP_VERIFY=1 scripts/build-dist.sh ...                     # skip structure checks
+LOGSEQ_SIGN_IDENTITY="Developer ID Application: …" scripts/build-dist.sh darwin/arm64
+```
+
+Artifacts land in `dist/<os>-<arch>/` (gitignored):
+
+| Target | Contents |
+|---|---|
+| `darwin/arm64`, `darwin/amd64` | `Logseq.app` + `logseq-<version>-<arch>.dmg` + `install.sh` |
+| `windows/amd64` | `Logseq.exe` + NSIS `logseq-setup-<version>-<arch>.exe` + `install.sh` |
+| `linux/amd64`, `linux/arm64` | `logseq` binary + `logseq.desktop` + `logseq-<version>-<os>-<arch>.tar.gz` + `logseq_<version>_<arch>.deb` + `install.sh` |
+
+The script stages the renderer (`../static`) and the embedding sidecar into
+`resources/` via `scripts/_resources.sh` (shared with `build-app.sh`), then
+verifies each artifact's structure: DMG `hdiutil imageinfo` + attach/detach
+of the contained `Logseq.app`, `.deb` `ar t` members
+(`debian-binary/control.tar/data.tar`), installer/exe presence for windows.
+On macOS hosts without `makensis` the Windows installer is skipped with a
+note (`brew install makensis` and rerun — mygo only auto-installs NSIS on
+Windows); the `.deb`/tar.gz/AppImage-less linux layout follows mygo's
+packaging (no AppImage support).
+
+Signing / notarization credentials (all optional — unsigned builds work
+everywhere):
+
+- macOS code signing: `LOGSEQ_SIGN_IDENTITY` (a `Developer ID Application:
+  …` identity), passed to `mygo build -sign`. `-` means ad-hoc sign (the
+  default here); an empty value would produce an unsigned build, so the
+  script always passes an identity. Notarization is `-skip-notarize` here;
+  for a notarized build call `mygo build` directly with
+  `macos.notarize.keychainProfile` (a keychain profile created via
+  `xcrun notarytool store-credentials`) in `mygo.json` and no
+  `-skip-notarize` flag (see mygo docs/distribution.md).
+- Windows signing: set `windows.certificate` (a .pfx) plus
+  `MYGO_WINDOWS_CERTIFICATE_PASSWORD`, or `windows.signCommand`, in
+  `mygo.json` before building (mygo docs/distribution.md).
+
 ## Debugging
 
 - `LOGSEQ_DEBUG=1` attaches the debug probe: `OnDidFailLoad` logging, delayed

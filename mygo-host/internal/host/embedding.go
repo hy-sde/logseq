@@ -239,7 +239,7 @@ func (h *Host) spawnEmbeddingServer(venvPython, scriptPath, sidecarRoot, hostAdd
 		"--log-file", logFile)
 	cmd.Dir = sidecarRoot
 	// Own process group so Stop kills the python child tree.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = sysProcAttrOwnGroup()
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
@@ -310,17 +310,17 @@ func (h *Host) stopEmbeddingServerLocked() {
 		st.proc = nil
 		st.url = ""
 		if proc.Process != nil {
-			_ = syscall.Kill(-proc.Process.Pid, syscall.SIGTERM)
+			_ = killProcessGroup(proc.Process.Pid, syscall.SIGTERM)
 			go func() {
 				deadline := time.Now().Add(3 * time.Second)
 				for {
-					// Signal 0 probes liveness; ESRCH means the group
+					// Group-liveness probe; false means the group
 					// is gone (the exit watcher reaped it).
-					if err := syscall.Kill(-proc.Process.Pid, 0); err != nil {
+					if !groupAlive(proc.Process.Pid) {
 						return
 					}
 					if time.Now().After(deadline) {
-						_ = syscall.Kill(-proc.Process.Pid, syscall.SIGKILL)
+						_ = killProcessGroup(proc.Process.Pid, syscall.SIGKILL)
 						return
 					}
 					time.Sleep(50 * time.Millisecond)

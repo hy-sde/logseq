@@ -5,7 +5,6 @@ package lifecycle
 import (
 	"os"
 	"syscall"
-	"unsafe"
 )
 
 // sysDev/sysIno: Windows has no stable dev/ino via os.FileInfo.Sys; use

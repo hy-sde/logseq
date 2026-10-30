@@ -17,7 +17,6 @@
 set -euo pipefail
 
 host_dir="$(cd "$(dirname "$0")/.." && pwd)"
-repo_static="$host_dir/../static"
 
 if [ -z "${MYGO_BIN:-}" ]; then
   if command -v mygo >/dev/null 2>&1; then
@@ -30,27 +29,8 @@ if [ -z "${MYGO_BIN:-}" ]; then
   fi
 fi
 
-if [ ! -d "$repo_static" ]; then
-  echo "[build-app] missing $repo_static — build the renderer first:" >&2
-  echo "  cd $(cd "$host_dir/.." && pwd) && pnpm gulp && clojure -M:cljs compile app db-worker db-worker-node" >&2
-  exit 1
-fi
-
-# Ship the renderer inside the bundle: mygo copies the resources/ directory
-# into Contents/Resources.
-rm -rf "$host_dir/resources/static"
-mkdir -p "$host_dir/resources"
-cp -R "$repo_static" "$host_dir/resources/static"
-
-# Ship the python embedding sidecar next to static (Contents/Resources/sidecar);
-# the host runs its embedding_server.py through a user-data venv at runtime.
-repo_sidecar="$host_dir/../sidecar"
-rm -rf "$host_dir/resources/sidecar"
-if [ -d "$repo_sidecar" ]; then
-  cp -R "$repo_sidecar" "$host_dir/resources/sidecar"
-else
-  echo "[build-app] note: $repo_sidecar missing — embedding sidecar will be unavailable"
-fi
+# Stage renderer + sidecar into resources/ (shared with build-dist.sh).
+source "$(dirname "$0")/_resources.sh"
 
 echo "[build-app] building with $MYGO_BIN"
 (cd "$host_dir" && "$MYGO_BIN" build -skip-dmg -skip-notarize -sign - "$@")

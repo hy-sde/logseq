@@ -26,8 +26,6 @@ var (
 	procUnlockFileEx = kernel32.NewProc("UnlockFileEx")
 )
 
-var errSelfSignal = errors.New("cannot stop the calling process")
-
 // flockLock on Windows is an exclusive LockFileEx over the whole file.
 func tryFlock(f *os.File) bool {
 	ol := syscall.Overlapped{}
@@ -43,8 +41,8 @@ func unlockFlock(f *os.File) {
 
 // pidExists mirrors lifecycle pidExists on Windows.
 func pidExists(pid int) bool {
-err := killErr(pid)
-return err == nil || errors.Is(err, syscall.EPERM)
+	err := killErr(pid)
+	return err == nil || errors.Is(err, syscall.EPERM)
 }
 
 // killErr classifies pid liveness for pid-status: not-found when the
@@ -82,7 +80,7 @@ func signalProcess(pid int, sig syscall.Signal) error {
 	if sig != syscall.SIGKILL {
 		return fmt.Errorf("signal %v unsupported on windows", sig)
 	}
-	h, _, err := procOpenProcess.Call(processTerminate, 0, uintptr(pid))
+	h, _, _ := procOpenProcess.Call(processTerminate, 0, uintptr(pid))
 	if h == 0 {
 		return nil // already gone
 	}
