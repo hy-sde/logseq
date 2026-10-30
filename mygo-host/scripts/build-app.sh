@@ -42,6 +42,16 @@ rm -rf "$host_dir/resources/static"
 mkdir -p "$host_dir/resources"
 cp -R "$repo_static" "$host_dir/resources/static"
 
+# Ship the python embedding sidecar next to static (Contents/Resources/sidecar);
+# the host runs its embedding_server.py through a user-data venv at runtime.
+repo_sidecar="$host_dir/../sidecar"
+rm -rf "$host_dir/resources/sidecar"
+if [ -d "$repo_sidecar" ]; then
+  cp -R "$repo_sidecar" "$host_dir/resources/sidecar"
+else
+  echo "[build-app] note: $repo_sidecar missing — embedding sidecar will be unavailable"
+fi
+
 echo "[build-app] building with $MYGO_BIN"
 (cd "$host_dir" && "$MYGO_BIN" build -skip-dmg -skip-notarize -sign - "$@")
 

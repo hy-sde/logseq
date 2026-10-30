@@ -156,6 +156,11 @@ func (h *Host) onReady() {
 	// platforms (window menus on linux/win apply to created windows).
 	h.installAppMenu()
 
+	// Embedding sidecar boots async (venv + pip can take minutes); workers
+	// started before it is ready simply miss LOGSEQ_EMBEDDINGS_URL until
+	// their next restart, matching the Electron setup! race.
+	go h.StartEmbeddingServer()
+
 	// Resolve the daemon script early so failures surface in the log.
 	if script, err := daemon.ResolveDaemonScript(h.cfg.ResourcesDir); err != nil {
 		log.Printf("[host] daemon script not found: %v (run `pnpm gulp` to build static/)", err)

@@ -49,6 +49,7 @@ type Host struct {
 	quitDirty       bool
 	proxyOptions    map[string]any
 	aborts          map[string]func()
+	embeddingState  embeddingState
 
 	mgr    *manager.Manager
 	locale string

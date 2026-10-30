@@ -187,11 +187,13 @@ func (h *Host) onGraphLifecycle(repo string, payload map[string]any) {
 	h.emitToAll(evGraphLifecycle, payload)
 }
 
-// stopAllWorkers is called on quit.
+// stopAllWorkers is called on quit; mirrors Electron's before-quit and
+// window-all-closed handlers (stop db workers, then the embedding server).
 func (h *Host) stopAllWorkers() {
 	if h.mgr != nil {
 		h.mgr.StopAll()
 	}
+	h.StopEmbeddingServer()
 }
 
 // ensureStorage resolves the lifecycle storage once for graph commands.

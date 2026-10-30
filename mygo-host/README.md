@@ -28,7 +28,7 @@ admission/healthz identity check, and `db-worker-runtime` completes in ~1s.
 | http request commands + abort | done | returnType json/text/base64/arraybuffer |
 | Proxy `setProxy` | partial | stored + applied to host HTTP clients; window session proxy not applied |
 | Updater (`check-for-updates` etc.) | done | GitHub latest-release check (`LOGSEQ_UPDATES_URL` override) vs `LOGSEQ_VERSION`/mygo.json; `updates-callback` events (`internal/host/updater.go`) |
-| Semantic search / embeddings | stub | endpoint args pass-through only |
+| Semantic search / embeddings | done (macOS) | sidecar manager (`internal/host/embedding.go`): venv + `sidecar/embedding_server.py`, publishes `LOGSEQ_EMBEDDINGS_URL` for db-worker spawns |
 | db-sync local server (`server/*`) | stub | nil responses |
 | Multi-window graph redirect (`redirectWhenExists`) | done | `logseq://graph/<id>?page|block-id|file` redirects the window on that graph; `logseq://new-window/...` opens a renderer-driven second window and replays the redirect at `graphReady` |
 | `runCli` | done | allowlist git/pandoc/ag/grep/alda |
@@ -188,8 +188,17 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
    `set-quit-dirty-state` flag is still true (the renderer clears it only
    for the update flow), so a normal quit asks for confirmation where
    Electron would not. Dialog errors fail open (quit proceeds).
-10. **Keychain service** is `Logseq E2EE` via mygo Secrets (matches keytar
-   `service = app name + " E2EE"`).
+ 10. **Keychain service** is `Logseq E2EE` via mygo Secrets (matches keytar
+    `service = app name + " E2EE"`).
+ 11. **Embedding sidecar runtime dir** lives at `<dot-dir>/embedding-server`
+    (Electron uses its user-data dir) and the venv bootstrap mirrors
+    `embedding_server.cljs` (reuse usable venv, recreate broken ones,
+    `deps-v2.ok` stamp gates pip installs). The sidecar script ships at
+    `Contents/Resources/sidecar` via `scripts/build-app.sh`. macOS-only,
+    like the Electron implementation. Workers spawned before the sidecar
+    is ready miss `LOGSEQ_EMBEDDINGS_URL` until their next restart (same
+    race as Electron's async `setup!`); the sidecar is killed with its
+    process group on quit (before-quit + window-all-closed).
 
 ## Layout
 
