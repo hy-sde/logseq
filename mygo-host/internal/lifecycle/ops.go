@@ -279,30 +279,8 @@ func CreateGraph(storage *Storage, repo string) (string, error) {
 		if _, statErr := os.Stat(ctx.GraphDir); phase == "available" && statErr == nil {
 			return stringOf(current["generation"]), nil
 		}
-		if deletion, ok := current["deletion"].(map[string]any); ok {
-			moved, _ := deletion["moved"].(bool)
-			if !moved {
-				if _, statErr := os.Stat(ctx.GraphDir); statErr == nil {
-					return "", fail("Graph deletion must finish before recreation")
-				}
-			}
-		}
-		if _, err := stopUnderLease(ctx, current, true, ""); err != nil {
-			return nil, err
-		}
-		handle, err := acquireOwnership(ctx)
+		next, err := createUnderLease(ctx, current)
 		if err != nil {
-			return nil, err
-		}
-		defer handle.release()
-		if err := os.MkdirAll(ctx.GraphDir, 0o755); err != nil {
-			return nil, err
-		}
-		next := map[string]any{
-			"generation": id(), "phase": "available", "workers": []any{},
-			"owner": current["owner"],
-		}
-		if err := writeJSON(ctx.StateFile, next); err != nil {
 			return nil, err
 		}
 		return stringOf(next["generation"]), nil
@@ -311,6 +289,39 @@ func CreateGraph(storage *Storage, repo string) (string, error) {
 		return "", err
 	}
 	return result.(string), nil
+}
+
+// createUnderLease is the create branch of CreateGraph under an already-held
+// lease: recreate the graph directory and mint a fresh generation. current is
+// the state read under the lease; the returned map is the new persisted state.
+func createUnderLease(ctx *GraphCtx, current map[string]any) (map[string]any, error) {
+	if deletion, ok := current["deletion"].(map[string]any); ok {
+		moved, _ := deletion["moved"].(bool)
+		if !moved {
+			if _, statErr := os.Stat(ctx.GraphDir); statErr == nil {
+				return nil, fail("Graph deletion must finish before recreation")
+			}
+		}
+	}
+	if _, err := stopUnderLease(ctx, current, true, ""); err != nil {
+		return nil, err
+	}
+	handle, err := acquireOwnership(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer handle.release()
+	if err := os.MkdirAll(ctx.GraphDir, 0o755); err != nil {
+		return nil, err
+	}
+	next := map[string]any{
+		"generation": id(), "phase": "available", "workers": []any{},
+		"owner": current["owner"],
+	}
+	if err := writeJSON(ctx.StateFile, next); err != nil {
+		return nil, err
+	}
+	return next, nil
 }
 
 // directoryIdentity ports fs.statSync {dev, ino}.
@@ -531,6 +542,23 @@ func StartGraph(opts StartOptions) (map[string]any, error) {
 		generation := opts.Generation
 		if generation == "" {
 			generation = observedGeneration
+		}
+		if opts.Generation == "" {
+			// Generation-less admission (renderer startup ensure-remote with
+			// a stale current-graph reference, no createGraph first): when
+			// the graph is absent, create it the way createGraph would
+			// instead of failing the renderer's startup chain — the auto-demo
+			// first-run flow then proceeds with a usable empty graph.
+			phase, _ := current["phase"].(string)
+			_, dirErr := os.Stat(ctx.GraphDir)
+			if phase != "available" || dirErr != nil {
+				next, err := createUnderLease(ctx, current)
+				if err != nil {
+					return nil, err
+				}
+				current = next
+				generation = stringOf(current["generation"])
+			}
 		}
 		if err := requireAvailable(ctx, current, generation); err != nil {
 			return nil, err
