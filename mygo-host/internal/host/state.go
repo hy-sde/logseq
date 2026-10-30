@@ -94,7 +94,10 @@ type windowHandle struct {
 
 func newHost(cfg Config) *Host {
 	return &Host{
-		cfg:        cfg,
+		cfg: cfg,
+		// core.cljs *quit-dirty? starts true; the renderer clears it via
+		// set-quit-dirty-state (e.g. before the update-quit flow).
+		quitDirty:  true,
 		windows:    map[int]*winState{},
 		allWindows: map[int]*windowHandle{},
 		aborts:     map[string]func(){},
@@ -254,6 +257,14 @@ func (h *Host) setQuitDirty(dirty bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.quitDirty = dirty
+}
+
+// isQuitDirty reports the renderer's dirty flag (core.cljs *quit-dirty?,
+// default true until the renderer calls set-quit-dirty-state false).
+func (h *Host) isQuitDirty() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.quitDirty
 }
 
 // registerAbort stores a cancel func for an HTTP request id.

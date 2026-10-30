@@ -37,6 +37,7 @@ admission/healthz identity check, and `db-worker-runtime` completes in ~1s.
 | x-callback-url / handbook deeplinks | done | `logseq://graph`, `new-window`, `quickCapture`, `invokeCommand`, `handbook` |
 | Single instance + second-instance argv | done | |
 | App menu (`set-app-menu!` port) | done | app/file/edit/view/window/help roles + Always-on-Top checkbox + Cmd/Ctrl+= zoom (`internal/host/menu.go`) |
+| Quit flow (before-quit / window-all-closed) | done | db-worker daemons stopped on both paths; confirm dialog when the renderer's quit-dirty flag is set (mygo Dialog, `PreventDefault` on cancel) |
 
 ## Build & run
 
@@ -135,8 +136,8 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
    (Electron stored EDN `configs.edn`; the value is renderer-opaque).
 9. **Keychain service** is `Logseq E2EE` via mygo Secrets (matches keytar
    `service = app name + " E2EE"`).
-10. **Updater is a stub** (no-update) — mygo updater integration lands in
-    milestone 2.
+ 10. **Updater is implemented in milestone 2** (GitHub latest-release check
+    via `check-for-updates`; see milestone-2 deviations 4–5).
 
 ## Contract deviations (milestone 2)
 
@@ -181,6 +182,14 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
    accelerator (Electron disables Command+W via `:accelerator false`);
    the non-mac Window menu keeps mygo's default Close accelerator
    (Electron disables Control+W there).
+9. **Quit confirm dialog fires whenever the dirty flag is set**: Electron
+   only consults `*quit-dirty?` inside its update-restart close handler;
+   the host shows the "Quit Logseq?" dialog on every quit whose
+   `set-quit-dirty-state` flag is still true (the renderer clears it only
+   for the update flow), so a normal quit asks for confirmation where
+   Electron would not. Dialog errors fail open (quit proceeds).
+10. **Keychain service** is `Logseq E2EE` via mygo Secrets (matches keytar
+   `service = app name + " E2EE"`).
 
 ## Layout
 

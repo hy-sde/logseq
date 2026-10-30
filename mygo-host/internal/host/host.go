@@ -64,14 +64,38 @@ func Run() error {
 		mygoApp().Quit()
 	})
 	mygoApp().OnBeforeQuit(func(e *mygo.QuitEvent) {
+		// core.cljs before-quit sets *quitting? and stops db workers; the
+		// mygo host additionally confirms when the renderer has not
+		// cleared the dirty flag (set-quit-dirty-state).
+		if h.isQuitDirty() && !h.confirmQuitDialog() {
+			log.Printf("[host] quit prevented by confirm dialog")
+			e.PreventDefault()
+			return
+		}
+		log.Printf("[host] quitting (dirty=%v)", h.isQuitDirty())
 		h.stopAllWorkers()
 	})
-
 	mygoApp().WhenReady(func() {
 		h.onReady()
 	})
 
 	return mygoApp().Run()
+}
+
+// confirmQuitDialog asks before quitting while the renderer's dirty flag
+// is set (core.cljs *quit-dirty?). Returns true when the quit proceeds.
+func (h *Host) confirmQuitDialog() bool {
+	res, err := mygo.Dialog.Message(mygo.MessageOptions{
+		Title:        "Logseq",
+		Message:      "Quit Logseq?",
+		Detail:       "Unsaved edits may be lost.",
+		Buttons:      []string{"Quit", "Cancel"},
+		CancelButton: 1,
+	})
+	if err != nil {
+		return true // fail open: never trap the user in the app
+	}
+	return res.Button == 0
 }
 
 // loadHostConfig resolves host configuration from flags/env.
