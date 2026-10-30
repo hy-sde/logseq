@@ -52,9 +52,15 @@ func (h *Host) mgrInvalidateRepo(repo string) {
 // ---- db export / get (worker HTTP) ----
 
 // invokeWorker calls the daemon's /v1/invoke endpoint and decodes the
-// transit result.
+// transit result. The daemon reads args from argsTransit (a transit-json
+// string, like the renderer's ldb/write-transit-str payloads); a plain
+// "args" field is ignored.
 func (h *Host) invokeWorker(baseURL, method string, args []any) (any, error) {
-	body := map[string]any{"method": method, "args": args}
+	argsTransit, err := transit.Encode(args)
+	if err != nil {
+		return nil, err
+	}
+	body := map[string]any{"method": method, "argsTransit": argsTransit}
 	resp, err := httpClient().Post(baseURL+"/v1/invoke", "application/json", jsonReader(body))
 	if err != nil {
 		return nil, err

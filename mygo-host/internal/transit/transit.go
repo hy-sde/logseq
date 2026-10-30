@@ -20,8 +20,10 @@ package transit
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -61,7 +63,7 @@ type parser struct {
 func (p *parser) ws() {
 	for p.pos < len(p.src) {
 		switch p.src[p.pos] {
-		case ' ', '\t', '\n', '\r', ',':
+		case ' ', '\t', '\n', '\r':
 			p.pos++
 		default:
 			return
@@ -85,13 +87,22 @@ func (p *parser) value(asKey bool, top bool) (any, error) {
 		}
 		return decodeStringToken(s, asKey, p)
 	case 'n':
-		p.pos++ // null
+		if !strings.HasPrefix(p.src[p.pos:], "null") {
+			return nil, fmt.Errorf("transit: unexpected token at %d", p.pos)
+		}
+		p.pos += 4
 		return nil, nil
 	case 't':
-		p.pos++ // true
+		if !strings.HasPrefix(p.src[p.pos:], "true") {
+			return nil, fmt.Errorf("transit: unexpected token at %d", p.pos)
+		}
+		p.pos += 4
 		return true, nil
 	case 'f':
-		p.pos++ // false
+		if !strings.HasPrefix(p.src[p.pos:], "false") {
+			return nil, fmt.Errorf("transit: unexpected token at %d", p.pos)
+		}
+		p.pos += 5
 		return false, nil
 	default:
 		// number (possibly with leading -)
@@ -417,4 +428,89 @@ func cacheKey(p *parser, key string) {
 	if len(key) > 3 && !strings.HasPrefix(key, "~") {
 		p.cache = append(p.cache, key)
 	}
+}
+
+// Encode serializes a Go value as transit-json for the daemon's
+// /v1/invoke argsTransit field. Strings, numbers, booleans, nil, arrays
+// and string-keyed maps encode as plain JSON, which cognitect transit
+// reads unchanged. Strings whose first byte is "~", "^" or "`" would
+// parse as transit ground tokens, so they are rejected instead of
+// half-implementing the escaping rules — extend this encoder before
+// passing such args.
+func Encode(v any) (string, error) {
+	var b strings.Builder
+	if err := encodeValue(&b, v); err != nil {
+		return "", err
+	}
+	return b.String(), nil
+}
+
+func encodeValue(b *strings.Builder, v any) error {
+	switch x := v.(type) {
+	case nil:
+		b.WriteString("null")
+	case bool:
+		if x {
+			b.WriteString("true")
+		} else {
+			b.WriteString("false")
+		}
+	case string:
+		if x != "" && (x[0] == '~' || x[0] == '^' || x[0] == '`') {
+			return fmt.Errorf("transit: unsupported leading %q in string arg", x[0])
+		}
+		data, err := json.Marshal(x)
+		if err != nil {
+			return err
+		}
+		b.Write(data)
+	case float64:
+		b.WriteString(strconv.FormatFloat(x, 'g', -1, 64))
+	case float32:
+		b.WriteString(strconv.FormatFloat(float64(x), 'g', -1, 32))
+	case int:
+		b.WriteString(strconv.Itoa(x))
+	case int64:
+		b.WriteString(strconv.FormatInt(x, 10))
+	case []any:
+		b.WriteByte('[')
+		for i, item := range x {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			if err := encodeValue(b, item); err != nil {
+				return err
+			}
+		}
+		b.WriteByte(']')
+	case map[string]any:
+		b.WriteByte('{')
+		i := 0
+		for _, k := range sortedKeys(x) {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			if err := encodeValue(b, k); err != nil {
+				return err
+			}
+			b.WriteByte(':')
+			if err := encodeValue(b, x[k]); err != nil {
+				return err
+			}
+			i++
+		}
+		b.WriteByte('}')
+	default:
+		return fmt.Errorf("transit: cannot encode %T", v)
+	}
+	return nil
+}
+
+func sortedKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

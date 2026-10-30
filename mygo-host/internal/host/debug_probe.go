@@ -110,6 +110,21 @@ func (h *Host) attachDebugProbe(w *mygoWindow) {
 		}
 		b2, _ := json.Marshal(back)
 		log.Printf("[debug] readback: %s", string(b2))
+		// Exercise the db-export backup path through the renderer bridge
+		// (same call shape ipc.cljs makes: window.apis.doAction([...])).
+		time.Sleep(2 * time.Second)
+		exp, err := w.Page().Eval(`(function(){
+			if (!window.apis || !window.apis.doAction) return "no apis";
+			return window.apis.doAction(["db-export", "logseq_db_Demo", true])
+				.then(function(r){ return "EXPORT-OK:" + JSON.stringify(r); })
+				.catch(function(e){ return "EXPORT-ERR:" + String(e && e.message || e); });
+		})()`)
+		if err != nil {
+			log.Printf("[debug] export eval error: %v", err)
+			return
+		}
+		b3, _ := json.Marshal(exp)
+		log.Printf("[debug] export: %s", string(b3))
 		// Persistence is verified from the daemon's SQLite file (checked
 		// externally with sqlite3) - datascript readback APIs vary by build.
 	}()

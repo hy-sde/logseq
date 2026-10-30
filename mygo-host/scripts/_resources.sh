@@ -11,11 +11,28 @@ if [ ! -d "$repo_static" ]; then
   exit 1
 fi
 
+# The node sidecar must be a self-contained release build: a dev-mode
+# db-worker-node.js lazily loads <repo>/.shadow-cljs/.../cljs-runtime from
+# disk, which does not exist inside a package (daemon exits with ENOENT).
+if grep -q "SHADOW_IMPORT_PATH" "$repo_static/db-worker-node.js"; then
+  echo "[mygo-build] static/db-worker-node.js is a dev build (lazy cljs-runtime loads); building release sidecar"
+  (cd "$host_dir/.." && clojure -M:cljs release db-worker-node)
+fi
+if grep -q "SHADOW_IMPORT_PATH" "$repo_static/db-worker-node.js"; then
+  echo "[mygo-build] db-worker-node.js still carries SHADOW_IMPORT_PATH after release build — aborting" >&2
+  exit 1
+fi
+
 # Ship the renderer inside the package: mygo copies the resources/ directory
 # into every target's payload.
 rm -rf "$host_dir/resources/static"
 mkdir -p "$host_dir/resources"
 cp -R "$repo_static" "$host_dir/resources/static"
+
+# Stage the npm closure the sidecar require()s at runtime (the repo's
+# node_modules is not visible inside a package).
+node "$host_dir/scripts/stage-node-modules.mjs" \
+  "$repo_static/db-worker-node.js" "$host_dir/resources"
 
 # Ship the python embedding sidecar next to static; the host runs its
 # embedding_server.py through a user-data venv at runtime.
