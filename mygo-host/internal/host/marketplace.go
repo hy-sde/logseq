@@ -111,10 +111,22 @@ type ghRelease struct {
 	ZipballURL string    `json:"zipball_url"`
 }
 
+// githubAPIError carries the HTTP status from a GitHub API call so callers
+// can distinguish 404 (version pin not found) from other failures.
+type githubAPIError struct {
+	status int
+	body   string
+}
+
+func (e *githubAPIError) Error() string {
+	return fmt.Sprintf("GitHub API Failed(%d) %s", e.status, e.body)
+}
+
 // fetchReleaseAsset ports plugin.cljs fetch-release-asset: GET
 // {api}/repos/{repo}/{suffix} (5s timeout), pick the first .zip asset,
 // falling back to the zipball url for themes. Returns (assetURL, tag,
 // releaseNotes). assetURL may be "" when the release has no usable asset.
+// Non-200 responses return a *githubAPIError so callers can special-case 404.
 func (h *Host) fetchReleaseAsset(repo, suffix string, theme bool) (string, string, string, error) {
 	api := h.probeGithubAPIBase()
 	endpoint := api + "/repos/" + repo + "/" + suffix
@@ -126,7 +138,7 @@ func (h *Host) fetchReleaseAsset(repo, suffix string, theme bool) (string, strin
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		text, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
-		return "", "", "", fmt.Errorf("GitHub API Failed(%d) %s", resp.StatusCode, strings.TrimSpace(string(text)))
+		return "", "", "", &githubAPIError{status: resp.StatusCode, body: strings.TrimSpace(string(text))}
 	}
 	var rel ghRelease
 	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
@@ -239,23 +251,30 @@ func (h *Host) installMarketPluginCmd(w *mygoWindow, item map[string]any) error 
 		suffix = "releases/tags/" + version
 	}
 	assetURL, latest, notes, err := h.fetchReleaseAsset(repo, suffix, boolOf(item, "theme"))
-	if err != nil && action == "install" {
-		// fetch-specific-release-asset falls back to latest on 404.
-		assetURL, latest, notes, err = h.fetchReleaseAsset(repo, "releases/latest", boolOf(item, "theme"))
+	if err != nil && action == "install" && version != "" {
+		// fetch-specific-release-asset falls back to latest on 404 only;
+		// rate limits / 5xx / timeouts surface as errors like Electron.
+		var ghErr *githubAPIError
+		if errors.As(err, &ghErr) && ghErr.status == http.StatusNotFound {
+			assetURL, latest, notes, err = h.fetchReleaseAsset(repo, "releases/latest", boolOf(item, "theme"))
+		}
 	}
 	if err != nil {
 		emitError(err)
 		return nil
 	}
 
-	// Update flows require a strictly newer version.
+	// Update flows require a strictly newer version. Electron wraps the
+	// comparison in when-let over (semver.coerce latest-version): an
+	// uncoercible latest tag skips the gate and installs anyway.
 	if updating {
-		coercedLatest, ok := semverCoerce(latest)
-		if !ok || semverCompare(coerced, coercedLatest) >= 0 {
-			// Electron throws (js/Error. :no-new-version); the renderer
-			// swallows this exact message.
-			emitError(errors.New(":no-new-version"))
-			return nil
+		if coercedLatest, ok := semverCoerce(latest); ok {
+			if semverCompare(coerced, coercedLatest) >= 0 {
+				// Electron throws (js/Error. :no-new-version); the renderer
+				// swallows this exact message.
+				emitError(errors.New(":no-new-version"))
+				return nil
+			}
 		}
 	}
 

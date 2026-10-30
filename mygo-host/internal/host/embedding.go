@@ -110,8 +110,8 @@ func (h *Host) StartEmbeddingServer() {
 			log.Printf("[host] embedding-server setup failed: %v", err)
 			st.mu.Lock()
 			st.started = false
-			st.mu.Unlock()
 			h.stopEmbeddingServerLocked()
+			st.mu.Unlock()
 		}
 	}()
 }
@@ -324,7 +324,9 @@ func (h *Host) stopEmbeddingServerLocked() {
 }
 
 func runCommandQuiet(name string, args []string, dir string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// Upstream imposes no timeout; the cap is generous enough for multi-GB
+	// sentence-transformers (torch) installs on slow networks.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir

@@ -38,10 +38,9 @@ func TestStopEmbeddingServerKillsProcessGroup(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		if cmd.ProcessState != nil {
-			break
-		}
-		// Signal 0 probes liveness; ESRCH means the group is gone.
+		// Signal 0 probes liveness; ESRCH means the group is gone. Do not
+		// read cmd.ProcessState here: the stop watcher's proc.Wait() writes
+		// it concurrently and -race flags the unsynchronized read.
 		if err := syscall.Kill(-cmd.Process.Pid, 0); err != nil {
 			break
 		}

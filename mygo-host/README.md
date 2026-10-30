@@ -149,7 +149,11 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
 2. **Semver comparisons** (`semverCoerce`/`semverCompare` in
    `marketplace.go`) ignore prerelease suffixes; marketplace version gates
    are numeric `major.minor.patch` comparisons, matching `semver.coerce`
-   for the values plugins ship.
+   for the values plugins ship. An update whose latest tag has no numeric
+   core skips the no-new-version gate and installs, matching Electron's
+   `when-let` over `(semver.coerce latest-version)`; a version-pinned
+   install falls back to the latest release only on GitHub 404 (other
+   API failures surface as errors).
 3. **`download-asset-zip` error double-emit** is collapsed: Electron emits
    an extra raw-error `lsp-updates` payload before the structured
    `{status "error", payload {..., error-code}}` one; the host emits only
