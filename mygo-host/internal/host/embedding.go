@@ -300,7 +300,9 @@ func (h *Host) StopEmbeddingServer() {
 }
 
 // stopEmbeddingServerLocked kills the sidecar process group; callers hold
-// the embedding mutex.
+// the embedding mutex. It never calls proc.Wait(): the spawn-path exit
+// watcher is the single Wait owner (concurrent Waits on one exec.Cmd are
+// unsynchronized), so shutdown is observed by polling process liveness.
 func (h *Host) stopEmbeddingServerLocked() {
 	st := h.embedding()
 	if st.proc != nil {
@@ -310,12 +312,18 @@ func (h *Host) stopEmbeddingServerLocked() {
 		if proc.Process != nil {
 			_ = syscall.Kill(-proc.Process.Pid, syscall.SIGTERM)
 			go func() {
-				done := make(chan struct{})
-				go func() { _ = proc.Wait(); close(done) }()
-				select {
-				case <-done:
-				case <-time.After(3 * time.Second):
-					_ = syscall.Kill(-proc.Process.Pid, syscall.SIGKILL)
+				deadline := time.Now().Add(3 * time.Second)
+				for {
+					// Signal 0 probes liveness; ESRCH means the group
+					// is gone (the exit watcher reaped it).
+					if err := syscall.Kill(-proc.Process.Pid, 0); err != nil {
+						return
+					}
+					if time.Now().After(deadline) {
+						_ = syscall.Kill(-proc.Process.Pid, syscall.SIGKILL)
+						return
+					}
+					time.Sleep(50 * time.Millisecond)
 				}
 			}()
 		}

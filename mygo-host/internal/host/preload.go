@@ -58,9 +58,12 @@ const preloadJS = `(() => {
   const listeners = new Map();
   // Electron's addListener binds ipcRenderer.on: callbacks receive the
   // IpcRendererEvent first and the payload second. mygo events dispatch
-  // listeners with a single payload argument, so the shim forwards the
-  // Electron (event, payload) shape here. (apis.on strips the event like
-  // Electron's preload on-channel helper; listener.cljs relies on that.)
+  // listeners with a single payload argument, so addListener/setUpdates
+  // callbacks get the Electron (event, payload) shape here. apis.on gets
+  // its own wrapper instead: Electron's preload on-channel helper strips
+  // the event ((_, data) => callback(data)), and listener.cljs
+  // safe-api-call registers one-arg callbacks on every main→renderer
+  // event through it.
   const addListenerImpl = (channel, cb) => {
     const off = MY().on(channel, (payload) => cb(null, payload));
     if (!listeners.has(channel)) listeners.set(channel, new Set());
@@ -112,7 +115,7 @@ const preloadJS = `(() => {
       const set = listeners.get(channel);
       if (set) { set.forEach((off) => off()); listeners.delete(channel); }
     },
-    on(channel, cb) { return addListenerImpl(channel, cb); },
+    on(channel, cb) { return MY().on(channel, (payload) => cb(payload)); },
     off(channel, cb) { window.apis.removeListener(channel, cb); },
     once(channel, cb) { return MY().once(channel, (payload) => cb(payload)); },
 

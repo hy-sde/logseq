@@ -30,6 +30,10 @@ func TestStopEmbeddingServerKillsProcessGroup(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Skipf("cannot start sleep: %v", err)
 	}
+	// Mirror the production spawn-path exit watcher: one goroutine owns
+	// Wait/reaping, otherwise the exited child stays a zombie and
+	// kill(-pid, 0) never reports ESRCH.
+	go func() { _ = cmd.Wait() }()
 	st := h.embedding()
 	st.mu.Lock()
 	st.proc = cmd
@@ -39,8 +43,8 @@ func TestStopEmbeddingServerKillsProcessGroup(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		// Signal 0 probes liveness; ESRCH means the group is gone. Do not
-		// read cmd.ProcessState here: the stop watcher's proc.Wait() writes
-		// it concurrently and -race flags the unsynchronized read.
+		// read cmd.ProcessState here: the reaper goroutine owns Wait and
+		// writes ProcessState concurrently.
 		if err := syscall.Kill(-cmd.Process.Pid, 0); err != nil {
 			break
 		}
