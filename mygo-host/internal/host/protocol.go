@@ -44,14 +44,19 @@ func serveFileFrom(w http.ResponseWriter, r *http.Request, root, rel string) {
 	clean := path.Clean("/" + strings.TrimPrefix(rel, "/"))
 	target := filepath.Join(root, filepath.FromSlash(clean))
 	if root != "" {
-		if relRoot, err := filepath.EvalSymlinks(root); err == nil {
-			if abs, err2 := filepath.Abs(target); err2 == nil {
-				if abs != relRoot && !strings.HasPrefix(abs, relRoot+string(os.PathSeparator)) {
-					http.Error(w, "forbidden", http.StatusForbidden)
-					return
-				}
+		// Compare fully RESOLVED paths on both sides: filepath.Abs does not
+		// resolve symlinks, so a symlinked root (macOS /tmp → /private/tmp)
+		// false-positives the containment check. Resolving the target too
+		// also rejects in-root symlinks that point outside the root.
+		resolvedRoot, rootErr := filepath.EvalSymlinks(root)
+		resolvedTarget, targetErr := filepath.EvalSymlinks(target)
+		if rootErr == nil && targetErr == nil {
+			if resolvedTarget != resolvedRoot && !strings.HasPrefix(resolvedTarget, resolvedRoot+string(os.PathSeparator)) {
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
 			}
 		}
+		// targetErr != nil → target missing; the Stat below 404s.
 	}
 	st, err := os.Stat(target)
 	if err != nil {

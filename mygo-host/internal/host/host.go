@@ -5,7 +5,11 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"os/exec"
+	"path"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -104,7 +108,10 @@ func loadHostConfig() Config {
 	cfg.ResourcesDir = envOr("LOGSEQ_RESOURCES", defaultResourcesDir())
 	cfg.DotDir = envOr("LOGSEQ_DOT_DIR", dotRootDefault())
 	cfg.GraphsDir = daemon.GetDBGraphsDir()
-	cfg.NodeBin = envOr("LOGSEQ_DB_WORKER_NODE_BIN", "node")
+	cfg.NodeBin = envOr("LOGSEQ_DB_WORKER_NODE_BIN", "")
+	if cfg.NodeBin == "" {
+		cfg.NodeBin = resolveNodeBin()
+	}
 	cfg.ExpectedRevision = os.Getenv("LOGSEQ_EXPECTED_REVISION")
 	cfg.EntryURL = envOr("LOGSEQ_ENTRY_URL", "lsp://logseq.com/index.html")
 	return cfg
@@ -115,6 +122,62 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// resolveNodeBin finds a node executable for GUI launches: Finder and
+// `open` spawn apps with launchd's minimal PATH (/usr/bin:/bin:…), which
+// hides nvm/Homebrew installs, so probe the common locations explicitly.
+func resolveNodeBin() string {
+	if _, err := exec.LookPath("node"); err == nil {
+		return "node"
+	}
+	candidates := []string{
+		"/opt/homebrew/bin/node",
+		"/usr/local/bin/node",
+		filepath.Join(os.Getenv("HOME"), ".volta", "bin", "node"),
+	}
+	if hits, _ := filepath.Glob(filepath.Join(os.Getenv("HOME"), ".nvm", "versions", "node", "*", "bin", "node")); len(hits) > 0 {
+		sort.Slice(hits, func(i, j int) bool { return nodeVersionLess(hits[j], hits[i]) })
+		candidates = append(candidates, hits[0])
+	}
+	for _, c := range candidates {
+		if st, err := os.Stat(c); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
+			return c
+		}
+	}
+	return "node"
+}
+
+// nodeVersionLess orders nvm dirs like "…/v24.20.0/bin/node" numerically
+// per version segment (lexical order would rank v9 above v24).
+func nodeVersionLess(a, b string) bool {
+	versionOf := func(p string) []int {
+		parts := strings.Split(path.Base(path.Dir(path.Dir(filepath.ToSlash(p)))), ".")
+		nums := make([]int, 0, len(parts))
+		for _, part := range parts {
+			n, err := strconv.Atoi(strings.TrimLeft(part, "v"))
+			if err != nil {
+				nums = append(nums, 0)
+				continue
+			}
+			nums = append(nums, n)
+		}
+		return nums
+	}
+	av, bv := versionOf(a), versionOf(b)
+	for i := 0; i < len(av) || i < len(bv); i++ {
+		var x, y int
+		if i < len(av) {
+			x = av[i]
+		}
+		if i < len(bv) {
+			y = bv[i]
+		}
+		if x != y {
+			return x < y
+		}
+	}
+	return false
 }
 
 // defaultResourcesDir: next to the executable (static/ layout), inside a

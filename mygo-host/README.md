@@ -117,7 +117,10 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
    the real SQLite protocol, so mixed fleets work except for simultaneous
    lifecycle operations from both engines on the same graph.
 2. **Daemon runtime uses `node` from PATH** (`LOGSEQ_DB_WORKER_NODE_BIN`)
-   instead of the Electron binary with `ELECTRON_RUN_AS_NODE=1`.
+   instead of the Electron binary with `ELECTRON_RUN_AS_NODE=1`. GUI
+   launches (Finder/`open` get launchd's minimal PATH) fall back to
+   Homebrew, /usr/local, Volta and the newest nvm install when `node`
+   is not on PATH.
 3. **Transit JSON**: Electron main spoke transit both ways; the Go host
    decodes incoming transit and replies with plain JSON (renderer-side
    reader patched to accept both).
