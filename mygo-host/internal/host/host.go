@@ -3,11 +3,9 @@ package host
 import (
 	"fmt"
 	"log"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/egoist/mygo"
@@ -339,15 +337,19 @@ func (h *Host) openGraphFromLink(parsed *url.URL, forceNewWindow bool) {
 }
 
 // graphIdentifierError mirrors url.cljs graph-identifier-error-handler.
+// i18n keys must be colon-less: bean/->js turns the CLJS keyword
+// :electron/link-open-failed-* into "electron/link-open-failed-*" and the
+// renderer rebuilds it with (keyword ...); a leading colon here produces a
+// malformed keyword and an empty notification.
 func (h *Host) graphIdentifierError(identifier string) {
 	if identifier != "" {
 		h.notifyError(nil,
 			fmt.Sprintf("Failed to open link. Cannot match graph identifier `%s` to any linked graph.", identifier),
-			":electron/link-open-failed-no-graph", []any{identifier})
+			"electron/link-open-failed-no-graph", []any{identifier})
 		return
 	}
 	h.notifyError(nil, "Failed to open link. Missing graph identifier after `logseq://graph/`.",
-		":electron/link-open-failed-missing-graph", nil)
+		"electron/link-open-failed-missing-graph", nil)
 }
 
 // focusedOrFirstWindow returns the focused window, falling back to the first
@@ -374,6 +376,3 @@ func (h *Host) focusWindowByID(id int) {
 		hd.win.Focus()
 	}
 }
-
-var _ = runtime.GOOS
-var _ = http.StatusOK

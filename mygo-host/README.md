@@ -178,7 +178,7 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
    one array (`call('LqChannels.Handle', channel, args)`); Electron passes
    spread arguments over `ipcRenderer.invoke`. Same wire payload, different
    JS-side packing (`internal/host/preload.go`).
-6. **`redirectWhenExists` targeting** mirrors `url.cljs` with one
+7. **`redirectWhenExists` targeting** mirrors `url.cljs` with one
    deviation: Electron drops the `openNewWindowOfGraph` send when no
    window is focused (`send-to-renderer` with a nil window is a no-op);
    the host falls back to the first alive window so a deep link always
@@ -187,21 +187,19 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
    The pending-redirect slot is consumed by the first `graphReady`
    regardless of the reported graph, matching the Electron
    `:window/once-graph-ready` slot.
-7. **Menu labels are plain English** (the Go host has no main-process
+8. **Menu labels are plain English** (the Go host has no main-process
    i18n; Electron resolves `:electron/new-window` etc. from its dicts).
    Non-mac About shows a plain message dialog without the app icon asset.
-8. **Menu close accelerators**: the mac File menu's "Close Window" has no
+9. **Menu close accelerators**: the mac File menu's "Close Window" has no
    accelerator (Electron disables Command+W via `:accelerator false`);
    the non-mac Window menu keeps mygo's default Close accelerator
    (Electron disables Control+W there).
-9. **Quit confirm dialog fires whenever the dirty flag is set**: Electron
+10. **Quit confirm dialog fires whenever the dirty flag is set**: Electron
    only consults `*quit-dirty?` inside its update-restart close handler;
    the host shows the "Quit Logseq?" dialog on every quit whose
    `set-quit-dirty-state` flag is still true (the renderer clears it only
    for the update flow), so a normal quit asks for confirmation where
    Electron would not. Dialog errors fail open (quit proceeds).
- 10. **Keychain service** is `Logseq E2EE` via mygo Secrets (matches keytar
-    `service = app name + " E2EE"`).
  11. **Embedding sidecar runtime dir** lives at `<dot-dir>/embedding-server`
     (Electron uses its user-data dir) and the venv bootstrap mirrors
     `embedding_server.cljs` (reuse usable venv, recreate broken ones,

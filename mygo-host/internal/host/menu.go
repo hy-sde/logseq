@@ -78,16 +78,15 @@ func (h *Host) installAppMenu() {
 
 	// help: official docs (+ non-mac about). On non-darwin mygo hides the
 	// RoleHelp/RoleAbout items entirely (its macOnlyRoles set), so plain
-	// labeled items are used there instead of the roles.
+	// labeled items are used there instead of the roles. macOS About lives
+	// only in the app menu (RoleAppMenu), matching core.cljs.
 	helpItems := []*mygo.MenuItem{{
 		Label: "Official Docs",
 		Click: func(*mygo.MenuItem, *mygo.Window) {
 			_ = mygoShell().OpenExternal("https://docs.logseq.com/")
 		},
 	}}
-	if isMac {
-		helpItems = append(helpItems, &mygo.MenuItem{Role: mygo.RoleAbout})
-	} else {
+	if !isMac {
 		helpItems = append(helpItems, &mygo.MenuItem{
 			Label: "About",
 			Click: func(*mygo.MenuItem, *mygo.Window) { h.showAboutDialog() },

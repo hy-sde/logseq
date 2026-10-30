@@ -309,19 +309,6 @@ func maybeMap(v any) map[string]any {
 	return m
 }
 
-// intOf coerces common numeric types to int64.
-func intOf(v any) int64 {
-	switch n := v.(type) {
-	case int64:
-		return n
-	case int:
-		return int64(n)
-	case float64:
-		return int64(n)
-	}
-	return 0
-}
-
 func stringArg(args []any, i int) string {
 	if i < len(args) {
 		if s, ok := args[i].(string); ok {
