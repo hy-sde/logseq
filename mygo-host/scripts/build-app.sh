@@ -55,7 +55,7 @@ fi
 echo "[build-app] building with $MYGO_BIN"
 (cd "$host_dir" && "$MYGO_BIN" build -skip-dmg -skip-notarize -sign - "$@")
 
-app="$(ls -d "$host_dir"/dist/*/Logseq.app "$host_dir"/dist/Logseq.app 2>/dev/null | head -1 || true)"
+app="$(ls -td "$host_dir"/dist/*/Logseq.app "$host_dir"/dist/Logseq.app 2>/dev/null | head -1 || true)"
 if [ -z "$app" ]; then
   echo "[build-app] no Logseq.app under $host_dir/dist — see mygo build output above" >&2
   exit 1

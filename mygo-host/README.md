@@ -154,6 +154,9 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
    `when-let` over `(semver.coerce latest-version)`; a version-pinned
    install falls back to the latest release only on GitHub 404 (other
    API failures surface as errors).
+   Proxy options use the renderer's shape (`type` + string `port` from
+   `util/normalize-port-input`); an unparseable port applies no proxy
+   rather than erroring the request.
 3. **`download-asset-zip` error double-emit** is collapsed: Electron emits
    an extra raw-error `lsp-updates` payload before the structured
    `{status "error", payload {..., error-code}}` one; the host emits only

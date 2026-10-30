@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -75,25 +76,36 @@ func proxyURLFromOptions(opts map[string]any) string {
 	if opts == nil {
 		return ""
 	}
-	mode := stringOf(opts, "mode")
-	protocol := strings.ToLower(stringOf(opts, "protocol"))
-	host := stringOf(opts, "host")
-	port := int(opts["port"].(float64))
-	_ = intOf
-	switch mode {
-	case "direct":
-		return ""
-	case "socks5":
+	// Renderer shape (components/plugins.cljs normalize-opts): always
+	// {:type "system"|"direct"|"http"|"socks5", :test url}; http/socks5 add
+	// :protocol, :host and :port as a STRING (util/normalize-port-input).
+	switch strings.ToLower(stringOf(opts, "type")) {
+	case "socks5", "http":
+		host := stringOf(opts, "host")
+		port := proxyPort(opts["port"])
 		if host != "" && port > 0 {
-			return fmt.Sprintf("socks5://%s:%d", host, port)
-		}
-	case "http":
-		if host != "" && port > 0 {
-			return fmt.Sprintf("http://%s:%d", host, port)
+			return fmt.Sprintf("%s://%s:%d", strings.ToLower(stringOf(opts, "type")), host, port)
 		}
 	}
-	_ = protocol
 	return ""
+}
+
+// proxyPort accepts the renderer's string port and tolerates numeric JSON.
+func proxyPort(v any) int {
+	switch p := v.(type) {
+	case string:
+		n, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil {
+			return 0
+		}
+		return n
+	case float64:
+		return int(p)
+	case int:
+		return p
+	default:
+		return 0
+	}
 }
 
 // httpFetchJSONCmd ports handler httpFetchJSON.
