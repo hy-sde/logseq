@@ -36,6 +36,7 @@ admission/healthz identity check, and `db-worker-runtime` completes in ~1s.
 | Marketplace plugin install/update/uninstall | done | GitHub release zip → `<dotdir>/plugins/<id>`; `lsp-updates` events (`internal/host/marketplace.go`, plugin.cljs port) |
 | x-callback-url / handbook deeplinks | done | `logseq://graph`, `new-window`, `quickCapture`, `invokeCommand`, `handbook` |
 | Single instance + second-instance argv | done | |
+| App menu (`set-app-menu!` port) | done | app/file/edit/view/window/help roles + Always-on-Top checkbox + Cmd/Ctrl+= zoom (`internal/host/menu.go`) |
 
 ## Build & run
 
@@ -173,6 +174,13 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
    The pending-redirect slot is consumed by the first `graphReady`
    regardless of the reported graph, matching the Electron
    `:window/once-graph-ready` slot.
+7. **Menu labels are plain English** (the Go host has no main-process
+   i18n; Electron resolves `:electron/new-window` etc. from its dicts).
+   Non-mac About shows a plain message dialog without the app icon asset.
+8. **Menu close accelerators**: the mac File menu's "Close Window" has no
+   accelerator (Electron disables Command+W via `:accelerator false`);
+   the non-mac Window menu keeps mygo's default Close accelerator
+   (Electron disables Control+W there).
 
 ## Layout
 

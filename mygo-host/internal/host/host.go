@@ -128,6 +128,10 @@ func dotRootDefault() string {
 
 // onReady starts the worker manager and opens the first window.
 func (h *Host) onReady() {
+	// App menu before the first window so the menu bar is set on all
+	// platforms (window menus on linux/win apply to created windows).
+	h.installAppMenu()
+
 	// Resolve the daemon script early so failures surface in the log.
 	if script, err := daemon.ResolveDaemonScript(h.cfg.ResourcesDir); err != nil {
 		log.Printf("[host] daemon script not found: %v (run `pnpm gulp` to build static/)", err)
