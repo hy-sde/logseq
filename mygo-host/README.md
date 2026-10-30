@@ -170,6 +170,11 @@ Requirements: Go 1.27+ (toolchain auto), the repo's `static/` build.
 5. **`install-updates` (installUpdatesAndQuitApp) cannot self-replace** a
    running Go binary: it logs the limitation and opens the GitHub release
    page in the browser instead of quitting + installing.
+6. **Preload shim argument convention**: mygo maps JS call arguments
+   positionally onto Go method params, so channel arguments are passed as
+   one array (`call('LqChannels.Handle', channel, args)`); Electron passes
+   spread arguments over `ipcRenderer.invoke`. Same wire payload, different
+   JS-side packing (`internal/host/preload.go`).
 6. **`redirectWhenExists` targeting** mirrors `url.cljs` with one
    deviation: Electron drops the `openNewWindowOfGraph` send when no
    window is focused (`send-to-renderer` with a nil window is a no-op);

@@ -52,6 +52,7 @@ type updaterInfo struct {
 }
 
 func (h *Host) emitUpdate(w *mygoWindow, typ string, payload any) {
+	log.Printf("[host] updates-callback emit type=%s win=%v", typ, w != nil)
 	if w != nil && !w.IsDestroyed() {
 		evUpdates.Emit(w, map[string]any{"type": typ, "payload": payload})
 	} else {

@@ -513,7 +513,10 @@ func (h *Host) uninstallMarketPluginCmd(id string) error {
 	pluginPath := filepath.Join(h.PluginsRoot(), id)
 	settingsPath := filepath.Join(h.DotRoot(), "settings", id+".json")
 	log.Printf("[marketplace] uninstall %s", pluginPath)
-	if fileExists(pluginPath) {
+	// Electron guards with fs/pathExistsSync, true for directories too —
+	// plugin installs are directories, so a plain stat check is required
+	// (fileExists excludes directories).
+	if _, err := os.Stat(pluginPath); err == nil {
 		if err := os.RemoveAll(pluginPath); err != nil {
 			return err
 		}

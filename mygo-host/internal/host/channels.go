@@ -22,6 +22,7 @@ type LqChannels struct{ H *Host }
 func (l *LqChannels) Handle(ctx context.Context, channel string, args []any) (any, error) {
 	h := l.H
 	w := mygo.CallerWindow(ctx)
+	log.Printf("[ipc] -> LqChannels %s (%d args)", channel, len(args))
 	switch channel {
 	case "call-application", "call-main-win":
 		// js-invoke app/win type args — plugin/app integration points that

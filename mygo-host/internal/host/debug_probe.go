@@ -30,11 +30,16 @@ func (h *Host) attachDebugProbe(w *mygoWindow) {
 		if (!window.__evtCapture) {
 			window.__evtCapture = [];
 			["redirectWhenExists", "redirect", "openNewWindowOfGraph", "notification", "updates-callback", "quickCapture"].forEach(function(name){
-				try { window.apis.addListener(name, function(d){ window.__evtCapture.push(name + ": " + JSON.stringify(d).slice(0, 220)); }); } catch(_){}
+				try { window.apis.addListener(name, function(_ev, d){ window.__evtCapture.push(name + ": " + JSON.stringify(d).slice(0, 220)); }); } catch(_){}
 			});
 		}
+		if (window.__lqUpdateCheck) { setTimeout(function(){ try { window.__evtCapture.push("timer:" + typeof window.apis + ":" + typeof (window.apis && window.apis.checkForUpdates)); var r = window.apis.checkForUpdates && window.apis.checkForUpdates(true); window.__evtCapture.push("called:" + String(r)); if (r && r.then) { r.then(function(v){ window.__evtCapture.push("resolved:" + JSON.stringify(v).slice(0,120)); }, function(e){ window.__evtCapture.push("rejected:" + String(e && e.message || e).slice(0,160)); }); } var r2 = window.apis.invoke && window.apis.invoke('get-downloaded-update'); if (r2 && r2.then) { r2.then(function(v){ window.__evtCapture.push("invoke-ok:" + JSON.stringify(v).slice(0,80)); }, function(e){ window.__evtCapture.push("invoke-err:" + String(e && e.message || e).slice(0,160)); }); } } catch(e){ window.__evtCapture.push("checkErr: " + (e && e.message)); } }, 8000); }
 		return "installed";
 	})()`
+	if os.Getenv("LOGSEQ_DEBUG_UPDATECHECK") == "1" {
+		// Smoke hook: exercise the updater callback path from the renderer.
+		install = "window.__lqUpdateCheck = true;" + install
+	}
 	probe := `(function(){
 		var ac = document.getElementById('app-container');
 		var cs = ac ? getComputedStyle(ac) : null;
@@ -50,6 +55,7 @@ func (h *Host) attachDebugProbe(w *mygoWindow) {
 			fonts: document.fonts ? document.fonts.status : 'n/a',
 			text: String(document.body.innerText).slice(0, 150),
 			evts: (window.__evtCapture || []).slice(-6),
+			apis: typeof window.apis === 'undefined' ? 'NO APIS' : (typeof window.apis.checkForUpdates + '|' + String(!!window.__lqUpdateCheck)),
 			errs: (window.__lqErrors || []).slice(0, 6)
 		});
 	})()`
