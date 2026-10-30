@@ -43,7 +43,11 @@ var (
 // transport (documented deviation, see httpclient.go).
 func (h *Host) proxyClient(timeout time.Duration) *http.Client {
 	client := &http.Client{Timeout: timeout}
-	if proxyURL := proxyURLFromOptions(h.proxyOptions); proxyURL != "" {
+	// setProxyCmd writes h.proxyOptions under h.mu; snapshot before use.
+	h.mu.Lock()
+	opts := h.proxyOptions
+	h.mu.Unlock()
+	if proxyURL := proxyURLFromOptions(opts); proxyURL != "" {
 		transport := &http.Transport{}
 		if pu, err := url.Parse(proxyURL); err == nil {
 			transport.Proxy = http.ProxyURL(pu)
@@ -209,20 +213,21 @@ func semverCompare(a, b string) int {
 
 // installMarketPluginCmd ports plugin.cljs install-or-update!. The item map
 // carries id/repo/version/title/author/description/effect/sponsors/theme/
-// plugin-action/only-check. Results are pushed to the caller window as
-// "lsp-updates" events with {status, only-check, payload}.
+// plugin-action/only-check. Results are broadcast to all windows as
+// "lsp-updates" events with {status, only-check, payload} — Electron's emit
+// fans out to every window and each window registers a listener.
 func (h *Host) installMarketPluginCmd(w *mygoWindow, item map[string]any) error {
 	emitError := func(err error) {
 		payload := copyMap(item)
 		payload["error-code"] = err.Error()
-		h.emitTo(w, evLspUpdates, map[string]any{
+		h.emitToAll(evLspUpdates, map[string]any{
 			"status":     "error",
 			"only-check": boolOf(item, "only-check"),
 			"payload":    payload,
 		})
 	}
 	emitCompleted := func(payload map[string]any) {
-		h.emitTo(w, evLspUpdates, map[string]any{
+		h.emitToAll(evLspUpdates, map[string]any{
 			"status":     "completed",
 			"only-check": boolOf(item, "only-check"),
 			"payload":    payload,

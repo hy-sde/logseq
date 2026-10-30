@@ -66,8 +66,10 @@ func Run() error {
 	mygoApp().OnBeforeQuit(func(e *mygo.QuitEvent) {
 		// core.cljs before-quit sets *quitting? and stops db workers; the
 		// mygo host additionally confirms when the renderer has not
-		// cleared the dirty flag (set-quit-dirty-state).
-		if h.isQuitDirty() && !h.confirmQuitDialog() {
+		// cleared the dirty flag (set-quit-dirty-state). No windows means
+		// quit came from window-all-closed — confirming there could strand
+		// a headless app if the user cancels, so skip the dialog.
+		if h.countWindows() > 0 && h.isQuitDirty() && !h.confirmQuitDialog() {
 			log.Printf("[host] quit prevented by confirm dialog")
 			e.PreventDefault()
 			return

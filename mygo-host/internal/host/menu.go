@@ -76,24 +76,30 @@ func (h *Host) installAppMenu() {
 		Submenu: windowItems,
 	})
 
-	// help: official docs (+ non-mac about, which Windows has no role for).
+	// help: official docs (+ non-mac about). On non-darwin mygo hides the
+	// RoleHelp/RoleAbout items entirely (its macOnlyRoles set), so plain
+	// labeled items are used there instead of the roles.
 	helpItems := []*mygo.MenuItem{{
 		Label: "Official Docs",
 		Click: func(*mygo.MenuItem, *mygo.Window) {
 			_ = mygoShell().OpenExternal("https://docs.logseq.com/")
 		},
 	}}
-	if !isMac {
+	if isMac {
+		helpItems = append(helpItems, &mygo.MenuItem{Role: mygo.RoleAbout})
+	} else {
 		helpItems = append(helpItems, &mygo.MenuItem{
-			Role:  mygo.RoleAbout,
 			Label: "About",
 			Click: func(*mygo.MenuItem, *mygo.Window) { h.showAboutDialog() },
 		})
 	}
-	template = append(template, &mygo.MenuItem{
-		Role:    mygo.RoleHelp,
-		Submenu: helpItems,
-	})
+	helpMenu := &mygo.MenuItem{Submenu: helpItems}
+	if isMac {
+		helpMenu.Role = mygo.RoleHelp
+	} else {
+		helpMenu.Label = "Help"
+	}
+	template = append(template, helpMenu)
 
 	// Enable Cmd/Ctrl+= zoom in.
 	template = append(template, &mygo.MenuItem{Role: mygo.RoleZoomIn, Accelerator: "CmdOrCtrl+="})
