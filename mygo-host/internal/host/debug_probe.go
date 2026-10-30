@@ -128,6 +128,26 @@ func (h *Host) attachDebugProbe(w *mygoWindow) {
 		// Persistence is verified from the daemon's SQLite file (checked
 		// externally with sqlite3) - datascript readback APIs vary by build.
 	}()
+	if os.Getenv("LOGSEQ_IPCBENCH") == "1" {
+		// Benchmark probe: N sequential main-IPC round-trips through the
+		// full renderer -> shim -> Go -> shim -> renderer path.
+		go func() {
+			time.Sleep(25 * time.Second)
+			bench := `(async function(){
+				if (!window.apis || !window.apis.doAction) return "no apis";
+				for (var i = 0; i < 20; i++) { await window.apis.doAction(["getAppBaseInfo"]); }
+				var t0 = performance.now();
+				for (var i = 0; i < 200; i++) { await window.apis.doAction(["getAppBaseInfo"]); }
+				return (performance.now() - t0).toFixed(1);
+			})()`
+			v, err := w.Page().Eval(bench)
+			if err != nil {
+				log.Printf("[bench] ipc eval error: %v", err)
+				return
+			}
+			log.Printf("[bench] ipc: 200 getAppBaseInfo round-trips took %v ms", v)
+		}()
+	}
 	go func() {
 		time.Sleep(3 * time.Second)
 		if v, err := w.Page().Eval(install); err != nil {
