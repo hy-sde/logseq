@@ -247,8 +247,8 @@ func (h *Host) httpRequestAbortCmd(reqID string) {
 
 // aborts registry accessors (backing the registerAbort/popAbort on Host).
 type abortRegistry struct {
-	mu      sync.Mutex
-	aborts  map[string]context.CancelFunc
+	mu     sync.Mutex
+	aborts map[string]context.CancelFunc
 }
 
 func (h *Host) abortFunc(reqID string) context.CancelFunc {

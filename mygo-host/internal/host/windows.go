@@ -10,8 +10,8 @@ import (
 
 	"github.com/egoist/mygo"
 	"logseq/mygo-host/internal/daemon"
-	"logseq/mygo-host/internal/manager"
 	"logseq/mygo-host/internal/lifecycle"
+	"logseq/mygo-host/internal/manager"
 )
 
 // wID returns the numeric id of a caller window (0 when unknown).
@@ -186,8 +186,6 @@ func (h *Host) onGraphLifecycle(repo string, payload map[string]any) {
 	payload["repo"] = repo
 	h.emitToAll(evGraphLifecycle, payload)
 }
-
-
 
 // stopAllWorkers is called on quit.
 func (h *Host) stopAllWorkers() {

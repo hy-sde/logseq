@@ -1,18 +1,17 @@
 package host
 
 import (
-	"regexp"
 	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/egoist/mygo"
-
 )
 
 // ---- platform / mygo accessors ----
@@ -222,4 +221,3 @@ func (h *Host) openPathCmd(p string) error {
 var hiddenSegmentRe = regexp.MustCompile(`(^|/)\.[^.]+`)
 
 func hiddenReMatch(rpath string) bool { return hiddenSegmentRe.MatchString(rpath) }
-

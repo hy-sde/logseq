@@ -27,8 +27,8 @@ const (
 )
 
 var (
-	updatePendingMu sync.Mutex
-	updatePending   bool
+	updatePendingMu  sync.Mutex
+	updatePending    bool
 	downloadedUpdate any // always nil: the host never downloads updates
 )
 
@@ -164,7 +164,7 @@ func (h *Host) installUpdatesAndQuitApp(w *mygoWindow, quitApp bool) {
 	if info, err := h.fetchLatestLogseqRelease(); err == nil && info.URL != "" {
 		page = info.URL
 	}
-	log.Printf("[updater] install-updates requested (quit=%v): no auto-updater in the mygo host — " +
+	log.Printf("[updater] install-updates requested (quit=%v): no auto-updater in the mygo host — "+
 		"opening the release page for a manual install: %s", quitApp, page)
 	if err := mygoShell().OpenExternal(page); err != nil {
 		log.Printf("[updater] open release page: %v", err)
