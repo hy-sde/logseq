@@ -39,8 +39,8 @@ var (
 
 // proxyClient builds the HTTP client used for marketplace + updater traffic.
 // Explicit renderer proxy options are honored; otherwise Go's default
-// (environment) proxy rules apply. socks5 is not supported by the stdlib
-// transport (documented deviation, see httpclient.go).
+// (environment) proxy rules apply. socks5 proxies tunnel via the stdlib
+// RFC 1928 dialer in socks5.go.
 func (h *Host) proxyClient(timeout time.Duration) *http.Client {
 	client := &http.Client{Timeout: timeout}
 	// setProxyCmd writes h.proxyOptions under h.mu; snapshot before use.
@@ -50,7 +50,11 @@ func (h *Host) proxyClient(timeout time.Duration) *http.Client {
 	if proxyURL := proxyURLFromOptions(opts); proxyURL != "" {
 		transport := &http.Transport{}
 		if pu, err := url.Parse(proxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(pu)
+			if pu.Scheme == "socks5" {
+				transport.DialContext = socks5DialContext(pu)
+			} else {
+				transport.Proxy = http.ProxyURL(pu)
+			}
 			client.Transport = transport
 		}
 	}
@@ -165,13 +169,14 @@ func (h *Host) fetchReleaseAsset(repo, suffix string, theme bool) (string, strin
 	return assetURL, rel.TagName, rel.Body, nil
 }
 
-// ---- semver helpers (minimal coerce/compare matching semver.js semantics
-// for the plugin marketplace's numeric version comparisons) ----
+// ---- semver helpers (coerce/compare matching semver.js semantics for
+// the plugin marketplace's and updater's version comparisons) ----
 
-var semverRe = regexp.MustCompile(`(\d+)(?:\.(\d+))?(?:\.(\d+))?`)
+var semverRe = regexp.MustCompile(`(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-([0-9A-Za-z][0-9A-Za-z.\-]*))?`)
 
-// semverCoerce extracts the first numeric version core from s and returns
-// it normalized to major.minor.patch ("", ok=false when absent).
+// semverCoerce extracts the first numeric version core from s, keeping a
+// prerelease suffix when one directly follows it ("0.10.5-beta.1" →
+// "0.10.5-beta.1", "version 3.4" → "3.4.0"; "", ok=false when absent).
 func semverCoerce(s string) (string, bool) {
 	m := semverRe.FindStringSubmatch(s)
 	if m == nil {
@@ -183,12 +188,56 @@ func semverCoerce(s string) (string, bool) {
 			parts[i] = "0"
 		}
 	}
-	return strings.Join(parts, "."), true
+	core := strings.Join(parts, ".")
+	if m[4] != "" {
+		core += "-" + m[4]
+	}
+	return core, true
 }
 
-// semverCompare compares two coerced versions (-1/0/1). Prerelease
-// suffixes are ignored (deviation: semver.js orders them before releases).
+// semverCore strips a coerced version's prerelease suffix ("1.0.0-beta.1"
+// → "1.0.0"). The marketplace's no-new-version gate compares cores only,
+// matching Electron's plain (semver.coerce version) which drops it.
+func semverCore(v string) string {
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		return v[:i]
+	}
+	return v
+}
+
+// semverCompare compares two coerced versions (-1/0/1) with semver
+// prerelease ordering: a prerelease sorts before its own release
+// (1.0.0-beta.1 < 1.0.0, matching electron-updater's semver.gt), numeric
+// identifiers sort before alphanumeric ones (1.0.0-alpha < 1.0.0-alpha.1,
+// 1.0.0-beta.2 < 1.0.0-beta.11) and a longer identifier list wins when the
+// common prefix is equal (semver spec rule 11).
 func semverCompare(a, b string) int {
+	coreA, preA := splitSemverPre(a)
+	coreB, preB := splitSemverPre(b)
+	if c := compareDottedNums(coreA, coreB); c != 0 {
+		return c
+	}
+	switch {
+	case preA == "" && preB == "":
+		return 0
+	case preA == "":
+		return 1 // release sorts after its prereleases
+	case preB == "":
+		return -1
+	}
+	return comparePrerelease(preA, preB)
+}
+
+func splitSemverPre(v string) (core, pre string) {
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		return v[:i], v[i+1:]
+	}
+	return v, ""
+}
+
+// compareDottedNums orders dot-separated numeric components ("0.10.5" vs
+// "0.10.11"); missing components count as 0.
+func compareDottedNums(a, b string) int {
 	as := strings.Split(a, ".")
 	bs := strings.Split(b, ".")
 	for i := 0; i < len(as) || i < len(bs); i++ {
@@ -207,6 +256,56 @@ func semverCompare(a, b string) int {
 		}
 	}
 	return 0
+}
+
+// comparePrerelease orders dot-separated prerelease identifiers per semver
+// spec rule 11.
+func comparePrerelease(a, b string) int {
+	as := strings.Split(a, ".")
+	bs := strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		an, aNum := atoiAll(as[i])
+		bn, bNum := atoiAll(bs[i])
+		var c int
+		switch {
+		case aNum && bNum:
+			c = an - bn
+		case aNum:
+			return -1 // numeric identifiers sort before alphanumeric ones
+		case bNum:
+			return 1
+		default:
+			c = strings.Compare(as[i], bs[i])
+		}
+		if c != 0 {
+			if c < 0 {
+				return -1
+			}
+			return 1
+		}
+	}
+	// Equal so far: the larger identifier set has higher precedence.
+	if len(as) < len(bs) {
+		return -1
+	}
+	if len(as) > len(bs) {
+		return 1
+	}
+	return 0
+}
+
+func atoiAll(s string) (int, bool) {
+	if s == "" {
+		return 0, false
+	}
+	n := 0
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, false
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n, true
 }
 
 // ---- install / update / uninstall ----
@@ -274,7 +373,9 @@ func (h *Host) installMarketPluginCmd(w *mygoWindow, item map[string]any) error 
 	// uncoercible latest tag skips the gate and installs anyway.
 	if updating {
 		if coercedLatest, ok := semverCoerce(latest); ok {
-			if semverCompare(coerced, coercedLatest) >= 0 {
+			// Electron's gate uses plain (semver.coerce latest-version),
+			// which drops the prerelease suffix; compare cores only.
+			if semverCompare(semverCore(coerced), semverCore(coercedLatest)) >= 0 {
 				// Electron throws (js/Error. :no-new-version); the renderer
 				// swallows this exact message.
 				emitError(errors.New(":no-new-version"))

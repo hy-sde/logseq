@@ -13,6 +13,8 @@ func TestSemverCoerce(t *testing.T) {
 		"1.2":            "1.2.0",
 		"version 3.4.5":  "3.4.5",
 		"0.0.1":          "0.0.1",
+		"0.10.5-beta.1":  "0.10.5-beta.1",
+		"1.0.0-rc.1+x64": "1.0.0-rc.1", // build metadata dropped
 		"no digits here": "",
 	}
 	for in, want := range cases {
@@ -34,7 +36,32 @@ func TestSemverCompare(t *testing.T) {
 		t.Error("2.0.0 should be greater than 1.9.9")
 	}
 	if semverCompare("0.10.5-beta", "0.10.4") <= 0 {
-		t.Error("prerelease suffix should be ignored")
+		t.Error("0.10.5-beta should be greater than 0.10.4 (higher core)")
+	}
+	if semverCompare("1.0.0-beta.1", "1.0.0") >= 0 {
+		t.Error("1.0.0-beta.1 should be less than 1.0.0")
+	}
+	// The ordering chain from the semver spec (rule 11).
+	chain := []string{
+		"1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta",
+		"1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0",
+	}
+	for i := 0; i < len(chain)-1; i++ {
+		if semverCompare(chain[i], chain[i+1]) >= 0 {
+			t.Errorf("%s should be less than %s", chain[i], chain[i+1])
+		}
+		if semverCompare(chain[i+1], chain[i]) <= 0 {
+			t.Errorf("%s should be greater than %s", chain[i+1], chain[i])
+		}
+	}
+}
+
+func TestSemverCore(t *testing.T) {
+	if got := semverCore("1.0.0-beta.1"); got != "1.0.0" {
+		t.Errorf("semverCore = %q, want 1.0.0", got)
+	}
+	if got := semverCore("1.0.0"); got != "1.0.0" {
+		t.Errorf("semverCore = %q, want 1.0.0", got)
 	}
 }
 

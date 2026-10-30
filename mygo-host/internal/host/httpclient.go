@@ -38,14 +38,15 @@ func (h *Host) testProxyURLCmd(urlToTest string, opts map[string]any) (any, erro
 	if proxyURL := proxyURLFromOptions(opts); proxyURL != "" {
 		transport := &http.Transport{}
 		if pu, err := url.Parse(proxyURL); err == nil {
-			transport.Proxy = http.ProxyURL(pu)
 			if pu.Scheme == "socks5" {
-				// stdlib supports socks5 via Transport? Not directly; register dialer is
-				// out of scope for milestone 1 (documented deviation).
-				_ = pu
+				// socks5 tunnels at the dialer level (RFC 1928); the
+				// transport's Proxy hook is http-only.
+				transport.DialContext = socks5DialContext(pu)
+			} else {
+				transport.Proxy = http.ProxyURL(pu)
 			}
+			client.Transport = transport
 		}
-		client.Transport = transport
 	}
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, urlToTest, nil)
 	if err != nil {

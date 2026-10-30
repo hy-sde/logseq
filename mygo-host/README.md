@@ -235,12 +235,19 @@ binary — see milestone-2 deviation 5.
 1. **Marketplace GitHub API probing** (plugin.cljs `valid-github-api!`):
    the `plugins.logseq.io/github/api` proxy is probed first (2s
    `/rate_limit`, 60s cache) and falls back to `api.github.com`, matching
-   Electron. Requests honor the renderer's stored proxy options (http
-   proxies; socks5 unsupported — stdlib limitation).
+   Electron. Requests honor the renderer's stored proxy options: http
+   proxies via the transport's proxy hook, socks5 via a stdlib RFC 1928
+   dialer (no-auth and user/pass auth; socks5_test.go covers the
+   round-trip, auth and CONNECT-failure paths).
 2. **Semver comparisons** (`semverCoerce`/`semverCompare` in
-   `marketplace.go`) ignore prerelease suffixes; marketplace version gates
-   are numeric `major.minor.patch` comparisons, matching `semver.coerce`
-   for the values plugins ship. An update whose latest tag has no numeric
+   `marketplace.go`): coerced versions keep a prerelease suffix and
+   compare with semver rule-11 ordering (`1.0.0-beta.1 < 1.0.0`,
+   `1.0.0-beta.2 < 1.0.0-beta.11`, numeric identifiers before
+   alphanumeric ones), matching electron-updater's `semver.gt` for the
+   updater's update-available gate. The marketplace's no-new-version
+   gate compares numeric cores only, matching Electron's plain
+   `(semver.coerce latest-version)` which drops the suffix.
+   An update whose latest tag has no numeric
    core skips the no-new-version gate and installs, matching Electron's
    `when-let` over `(semver.coerce latest-version)`; a version-pinned
    install falls back to the latest release only on GitHub 404 (other
